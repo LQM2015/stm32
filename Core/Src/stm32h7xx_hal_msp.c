@@ -317,16 +317,16 @@ void HAL_OSPI_MspDeInit(OSPI_HandleTypeDef* hospi)
 }
 
 /**
-  * @brief MMC MSP Initialization
+  * @brief SD MSP Initialization
   * This function configures the hardware resources used in this example
-  * @param hmmc: MMC handle pointer
+  * @param hsd: SD handle pointer
   * @retval None
   */
-void HAL_MMC_MspInit(MMC_HandleTypeDef* hmmc)
+void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
-  if(hmmc->Instance==SDMMC1)
+  if(hsd->Instance==SDMMC1)
   {
     /* USER CODE BEGIN SDMMC1_MspInit 0 */
 
@@ -354,17 +354,23 @@ void HAL_MMC_MspInit(MMC_HandleTypeDef* hmmc)
     PC9     ------> SDMMC1_D1
     PC8     ------> SDMMC1_D0
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_9
-                          |GPIO_PIN_8;
+    GPIO_InitStruct.Pin = GPIO_PIN_12;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_NOPULL; /* CK pin should not have a pull-up */
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF12_SDMMC1;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_9|GPIO_PIN_8;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP; /* CMD and DATA lines need pull-up */
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF12_SDMMC1;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = GPIO_PIN_2;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP; /* CMD line needs pull-up */
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF12_SDMMC1;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
@@ -378,14 +384,14 @@ void HAL_MMC_MspInit(MMC_HandleTypeDef* hmmc)
 }
 
 /**
-  * @brief MMC MSP De-Initialization
+  * @brief SD MSP De-Initialization
   * This function freeze the hardware resources used in this example
-  * @param hmmc: MMC handle pointer
+  * @param hsd: SD handle pointer
   * @retval None
   */
-void HAL_MMC_MspDeInit(MMC_HandleTypeDef* hmmc)
+void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd)
 {
-  if(hmmc->Instance==SDMMC1)
+  if(hsd->Instance==SDMMC1)
   {
     /* USER CODE BEGIN SDMMC1_MspDeInit 0 */
 

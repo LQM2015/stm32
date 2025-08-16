@@ -69,8 +69,8 @@
 /* #define HAL_RNG_MODULE_ENABLED   */
 /* #define HAL_RTC_MODULE_ENABLED   */
 #define HAL_SAI_MODULE_ENABLED
-/* #define HAL_SD_MODULE_ENABLED   */
-#define HAL_MMC_MODULE_ENABLED
+#define HAL_SD_MODULE_ENABLED
+/* #define HAL_MMC_MODULE_ENABLED   */
 /* #define HAL_SPDIFRX_MODULE_ENABLED   */
 /* #define HAL_SPI_MODULE_ENABLED   */
 /* #define HAL_SWPMI_MODULE_ENABLED   */
@@ -382,9 +382,6 @@
  #include "stm32h7xx_hal_mdios.h"
 #endif /* HAL_MDIOS_MODULE_ENABLED */
 
-#ifdef HAL_MMC_MODULE_ENABLED
- #include "stm32h7xx_hal_mmc.h"
-#endif /* HAL_MMC_MODULE_ENABLED */
 
 #ifdef HAL_LPTIM_MODULE_ENABLED
 #include "stm32h7xx_hal_lptim.h"
@@ -433,6 +430,10 @@
 #ifdef HAL_SAI_MODULE_ENABLED
  #include "stm32h7xx_hal_sai.h"
 #endif /* HAL_SAI_MODULE_ENABLED */
+
+#ifdef HAL_MMC_MODULE_ENABLED
+ #include "stm32h7xx_hal_mmc.h"
+#endif /* HAL_MMC_MODULE_ENABLED */
 
 #ifdef HAL_SD_MODULE_ENABLED
  #include "stm32h7xx_hal_sd.h"
