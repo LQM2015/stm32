@@ -23,7 +23,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "string.h"
+#include "ffconf.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -460,7 +461,7 @@ static void MX_SDMMC1_SD_Init(void)
   hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
   hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
   hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd1.Init.ClockDiv = 0;
+  hsd1.Init.ClockDiv = 3; /* Set a safer, slower clock speed (e.g., 100MHz / (3+2) = 20MHz) */
   if (HAL_SD_Init(&hsd1) != HAL_OK)
   {
     Error_Handler();
@@ -576,6 +577,75 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
   TASK_PRINTF("DefaultTask started successfully");
+
+  /* Mount SD card, format if needed, and write file */
+  FIL MyFile;     /* File object */
+  FRESULT res;    /* FatFs function common result code */
+  uint32_t byteswritten; /* File write counts */
+  char wtext[] = "helloworld";
+  uint8_t workBuffer[_MAX_SS]; /* Work buffer for f_mkfs() */
+
+  /*##-1- Try to mount the file system ######################################*/
+  res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
+  if(res != FR_OK)
+  {
+    /* Mount failed, check if it's because there is no filesystem */
+    if (res == FR_NO_FILESYSTEM)
+    {
+      WARN_PRINTF("No filesystem found, attempting to format SD card...");
+      /*##-2- Format the disk ################################################*/
+      res = f_mkfs((TCHAR const*)USERPath, FM_FAT32, 0, workBuffer, sizeof(workBuffer));
+      if (res != FR_OK)
+      {
+        ERROR_PRINTF("Failed to format SD card. Error: %d", res);
+      }
+      else
+      {
+        SUCCESS_PRINTF("SD card formatted successfully.");
+        /*##-3- Mount again after formatting #################################*/
+        res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
+        if (res != FR_OK)
+        {
+           ERROR_PRINTF("Failed to mount SD card even after format. Error: %d", res);
+        }
+      }
+    }
+    else
+    {
+      ERROR_PRINTF("Failed to mount SD card for other reasons. Error: %d", res);
+    }
+  }
+
+  /*##-4- If mount is successful, proceed to write file ####################*/
+  if (res == FR_OK)
+  {
+    INFO_PRINTF("SD Card mounted successfully");
+    /*##-5- Create and Open a new text file object with write access ##########*/
+    if(f_open(&MyFile, "hello.txt", FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
+    {
+      /* 'hello.txt' file Open for write Error */
+      ERROR_PRINTF("Failed to open or create hello.txt");
+    }
+    else
+    {
+      INFO_PRINTF("hello.txt opened for writing");
+      /*##-6- Write data to the text file ################################*/
+      res = f_write(&MyFile, wtext, strlen(wtext), (void *)&byteswritten);
+
+      if((byteswritten == 0) || (res != FR_OK))
+      {
+        /* 'hello.txt' file Write or EOF Error */
+        ERROR_PRINTF("Failed to write to hello.txt");
+      }
+      else
+      {
+        SUCCESS_PRINTF("Wrote '%s' to hello.txt", wtext);
+        /*##-7- Close the open text file #################################*/
+        f_close(&MyFile);
+        INFO_PRINTF("hello.txt closed");
+      }
+    }
+  }
   
   uint32_t counter = 0;
   
@@ -599,6 +669,7 @@ void StartDefaultTask(void *argument)
       }
     }
     
+    HAL_IWDG_Refresh(&hiwdg1);
     osDelay(1);
   }
   /* USER CODE END 5 */

@@ -35,11 +35,14 @@
 /* Includes ------------------------------------------------------------------*/
 #include <string.h>
 #include "ff_gen_drv.h"
+#include "main.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
 /* Private variables ---------------------------------------------------------*/
+extern SD_HandleTypeDef hsd1;
+
 /* Disk status */
 static volatile DSTATUS Stat = STA_NOINIT;
 
@@ -81,8 +84,8 @@ DSTATUS USER_initialize (
 )
 {
   /* USER CODE BEGIN INIT */
-    Stat = STA_NOINIT;
-    return Stat;
+  /* HAL_SD_Init() is called in main.c, we just need to check the status */
+  return USER_status(pdrv);
   /* USER CODE END INIT */
 }
 
@@ -96,8 +99,14 @@ DSTATUS USER_status (
 )
 {
   /* USER CODE BEGIN STATUS */
-    Stat = STA_NOINIT;
-    return Stat;
+  if (pdrv != 0) return STA_NOINIT; /* We only support one drive */
+
+  Stat = STA_NOINIT;
+  if (HAL_SD_GetCardState(&hsd1) == HAL_SD_CARD_TRANSFER)
+  {
+    Stat &= ~STA_NOINIT;
+  }
+  return Stat;
   /* USER CODE END STATUS */
 }
 
@@ -117,7 +126,23 @@ DRESULT USER_read (
 )
 {
   /* USER CODE BEGIN READ */
-    return RES_OK;
+  DRESULT res = RES_ERROR;
+  HAL_StatusTypeDef hal_res;
+
+  if (pdrv != 0) return RES_PARERR;
+
+  // INFO_PRINTF("USER_read: sector=%lu, count=%u", sector, count);
+  hal_res = HAL_SD_ReadBlocks(&hsd1, (uint8_t *)buff, sector, count, HAL_MAX_DELAY);
+  if (hal_res == HAL_OK)
+  {
+    res = RES_OK;
+  }
+  else
+  {
+    ERROR_PRINTF("USER_read failed! HAL_SD_ReadBlocks returned %d", hal_res);
+    res = RES_ERROR;
+  }
+  return res;
   /* USER CODE END READ */
 }
 
@@ -138,8 +163,23 @@ DRESULT USER_write (
 )
 {
   /* USER CODE BEGIN WRITE */
-  /* USER CODE HERE */
-    return RES_OK;
+  DRESULT res = RES_ERROR;
+  HAL_StatusTypeDef hal_res;
+
+  if (pdrv != 0) return RES_PARERR;
+
+  // INFO_PRINTF("USER_write: sector=%lu, count=%u", sector, count);
+  hal_res = HAL_SD_WriteBlocks(&hsd1, (const uint8_t *)buff, sector, count, HAL_MAX_DELAY);
+  if (hal_res == HAL_OK)
+  {
+    res = RES_OK;
+  }
+  else
+  {
+    ERROR_PRINTF("USER_write failed! HAL_SD_WriteBlocks returned %d", hal_res);
+    res = RES_ERROR;
+  }
+  return res;
   /* USER CODE END WRITE */
 }
 #endif /* _USE_WRITE == 1 */
@@ -159,9 +199,45 @@ DRESULT USER_ioctl (
 )
 {
   /* USER CODE BEGIN IOCTL */
-    DRESULT res = RES_ERROR;
-    return res;
+  DRESULT res = RES_ERROR;
+  HAL_SD_CardInfoTypeDef CardInfo;
+
+  if (pdrv != 0) return RES_PARERR;
+  if (Stat & STA_NOINIT) return RES_NOTRDY;
+
+  switch (cmd)
+  {
+  /* Make sure that no pending write process */
+  case CTRL_SYNC :
+    res = RES_OK;
+    break;
+
+  /* Get number of sectors on the disk (DWORD) */
+  case GET_SECTOR_COUNT :
+    HAL_SD_GetCardInfo(&hsd1, &CardInfo);
+    *(DWORD*)buff = CardInfo.LogBlockNbr;
+    res = RES_OK;
+    break;
+
+  /* Get R/W sector size (WORD) */
+  case GET_SECTOR_SIZE :
+    HAL_SD_GetCardInfo(&hsd1, &CardInfo);
+    *(WORD*)buff = CardInfo.LogBlockSize;
+    res = RES_OK;
+    break;
+
+  /* Get erase block size in unit of sector (DWORD) */
+  case GET_BLOCK_SIZE :
+    HAL_SD_GetCardInfo(&hsd1, &CardInfo);
+    *(DWORD*)buff = CardInfo.LogBlockSize / 512;
+    res = RES_OK;
+    break;
+
+  default:
+    res = RES_PARERR;
+  }
+
+  return res;
   /* USER CODE END IOCTL */
 }
 #endif /* _USE_IOCTL == 1 */
-
