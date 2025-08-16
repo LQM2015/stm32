@@ -60,7 +60,7 @@ UART_HandleTypeDef huart3;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 512 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for mic2isp */
@@ -289,9 +289,9 @@ static void MX_IWDG1_Init(void)
 
   /* USER CODE END IWDG1_Init 1 */
   hiwdg1.Instance = IWDG1;
-  hiwdg1.Init.Prescaler = IWDG_PRESCALER_4;
-  hiwdg1.Init.Window = 4095;
-  hiwdg1.Init.Reload = 4095;
+  hiwdg1.Init.Prescaler = IWDG_PRESCALER_32;
+  hiwdg1.Init.Window = 4095; /* Window disabled */
+  hiwdg1.Init.Reload = 999;   /* ~1 second timeout with 32KHz LSI clock */
   if (HAL_IWDG_Init(&hiwdg1) != HAL_OK)
   {
     Error_Handler();
@@ -620,6 +620,7 @@ void StartDefaultTask(void *argument)
   if (res == FR_OK)
   {
     INFO_PRINTF("SD Card mounted successfully");
+    osDelay(100); /* Add a short delay for card to stabilize before writing */
     /*##-5- Create and Open a new text file object with write access ##########*/
     if(f_open(&MyFile, "hello.txt", FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
     {
@@ -669,7 +670,6 @@ void StartDefaultTask(void *argument)
       }
     }
     
-    HAL_IWDG_Refresh(&hiwdg1);
     osDelay(1);
   }
   /* USER CODE END 5 */

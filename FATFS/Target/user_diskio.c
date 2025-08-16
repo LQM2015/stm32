@@ -176,7 +176,7 @@ DRESULT USER_write (
   }
   else
   {
-    ERROR_PRINTF("USER_write failed! HAL_SD_WriteBlocks returned %d", hal_res);
+    ERROR_PRINTF("USER_write failed! HAL_SD_WriteBlocks returned %d. SD Error Code: 0x%lX", hal_res, hsd1.ErrorCode);
     res = RES_ERROR;
   }
   return res;

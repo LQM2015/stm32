@@ -53,7 +53,7 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+extern IWDG_HandleTypeDef hiwdg1;
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
