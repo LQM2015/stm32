@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "ffconf.h"
+#include "clock_management.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,7 +61,7 @@ UART_HandleTypeDef huart3;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 1024 * 4,
+  .stack_size = 2048 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for mic2isp */
@@ -80,7 +81,7 @@ static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_BDMA_Init(void);
 static void MX_SAI4_Init(void);
-static void MX_SDMMC1_SD_Init(void);
+void MX_SDMMC1_SD_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_IWDG1_Init(void);
 static void MX_OCTOSPI1_Init(void);
@@ -225,11 +226,11 @@ void SystemClock_Config(void)
 
   /** Supply configuration update enable
   */
-  HAL_PWREx_ConfigSupply(PWR_DIRECT_SMPS_SUPPLY);
+  HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
@@ -241,12 +242,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 2;
-  RCC_OscInitStruct.PLL.PLLN = 16;
-  RCC_OscInitStruct.PLL.PLLP = 1;
+  RCC_OscInitStruct.PLL.PLLM = 5;
+  RCC_OscInitStruct.PLL.PLLN = 220;
+  RCC_OscInitStruct.PLL.PLLP = 2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
-  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
+  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -261,13 +262,13 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -444,9 +445,9 @@ static void MX_SAI4_Init(void)
 /**
   * @brief SDMMC1 Initialization Function
   * @param None
-  * @retval None
+ * @retval None
   */
-static void MX_SDMMC1_SD_Init(void)
+void MX_SDMMC1_SD_Init(void)
 {
 
   /* USER CODE BEGIN SDMMC1_Init 0 */
@@ -461,7 +462,7 @@ static void MX_SDMMC1_SD_Init(void)
   hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
   hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
   hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd1.Init.ClockDiv = 3; /* Set a safer, slower clock speed (e.g., 100MHz / (3+2) = 20MHz) */
+  hsd1.Init.ClockDiv = 10; /* With HCLK at 275MHz, SDMMC clk = 275 / (10*2) = 13.75MHz */
   if (HAL_SD_Init(&hsd1) != HAL_OK)
   {
     Error_Handler();
@@ -649,6 +650,7 @@ void StartDefaultTask(void *argument)
   }
   
   uint32_t counter = 0;
+  ClockProfile_t current_profile = CLOCK_PROFILE_HIGH_PERF;
   
   /* Infinite loop */
   for(;;)
@@ -658,16 +660,25 @@ void StartDefaultTask(void *argument)
     // 每10秒输出一次心跳信息
     if (counter % 10000 == 0) {
       DEBUG_PRINTF("DefaultTask heartbeat - Counter: %lu", counter);
+    }
+    
+    // 运行20秒后，切换到省电模式
+    if (counter == 20000 && current_profile == CLOCK_PROFILE_HIGH_PERF) {
+      INFO_PRINTF("Switching to Power Save Mode (200 MHz)...");
+      SwitchSystemClock(CLOCK_PROFILE_POWER_SAVE);
+      current_profile = CLOCK_PROFILE_POWER_SAVE;
+      SUCCESS_PRINTF("Switched to Power Save Mode. System Clock is now: %lu Hz", SystemCoreClock);
+    }
+    
+    // 再过20秒后 (总共40秒)，切换回高性能模式
+    if (counter == 40000 && current_profile == CLOCK_PROFILE_POWER_SAVE) {
+      INFO_PRINTF("Switching back to High Performance Mode (550 MHz)...");
+      SwitchSystemClock(CLOCK_PROFILE_HIGH_PERF);
+      current_profile = CLOCK_PROFILE_HIGH_PERF;
+      SUCCESS_PRINTF("Switched to High Performance Mode. System Clock is now: %lu Hz", SystemCoreClock);
       
-      // 每分钟打印一次内存信息
-      if (counter % 60000 == 0) {
-        debug_print_memory_info();
-      }
-      
-      // 每5分钟打印一次任务信息
-      if (counter % 300000 == 0) {
-        debug_print_task_info();
-      }
+      // 重置计数器，以便可以重复演示
+      counter = 0;
     }
     
     osDelay(1);
