@@ -138,14 +138,28 @@ int main(void)
   MX_GPIO_Init();
   MX_BDMA_Init();
   MX_SAI4_Init();
-  MX_SDMMC1_MMC_Init();
+  // 初始化调试系统
   MX_USART3_UART_Init();
+  debug_init();  
+  MX_SDMMC1_MMC_Init();
   MX_FATFS_Init();
   MX_IWDG1_Init();
   MX_OCTOSPI1_Init();
   MX_OCTOSPI2_Init();
   /* USER CODE BEGIN 2 */
-
+  
+  
+  // 打印系统信息
+  debug_print_system_info();
+  
+  // 测试不同级别的调试输出
+  DEBUG_PRINTF("Debug system test - all peripherals initialized");
+  SUCCESS_PRINTF("All hardware initialization completed");
+  INFO_PRINTF("MCU ready, starting FreeRTOS scheduler");
+  
+  // 演示颜色功能测试
+  WARN_PRINTF("This is a warning message test");
+  
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -560,9 +574,30 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  TASK_PRINTF("DefaultTask started successfully");
+  
+  uint32_t counter = 0;
+  
   /* Infinite loop */
   for(;;)
   {
+    counter++;
+    
+    // 每10秒输出一次心跳信息
+    if (counter % 10000 == 0) {
+      DEBUG_PRINTF("DefaultTask heartbeat - Counter: %lu", counter);
+      
+      // 每分钟打印一次内存信息
+      if (counter % 60000 == 0) {
+        debug_print_memory_info();
+      }
+      
+      // 每5分钟打印一次任务信息
+      if (counter % 300000 == 0) {
+        debug_print_task_info();
+      }
+    }
+    
     osDelay(1);
   }
   /* USER CODE END 5 */
@@ -578,9 +613,29 @@ void StartDefaultTask(void *argument)
 void mic2isp_task(void *argument)
 {
   /* USER CODE BEGIN mic2isp_task */
+  TASK_PRINTF("Mic2ISP task started successfully");
+  
+  uint32_t task_counter = 0;
+  uint8_t test_data[] = {0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78};
+  
   /* Infinite loop */
   for(;;)
   {
+    task_counter++;
+    
+    // 每30秒输出一次任务状态
+    if (task_counter % 30000 == 0) {
+      DEBUG_PRINTF("Mic2ISP task running - Counter: %lu", task_counter);
+      
+      // 演示十六进制数据打印（彩色）
+      if (task_counter % 120000 == 0) {
+        DEBUG_PRINT_BUFFER(test_data, sizeof(test_data), "Audio Buffer");
+      }
+    }
+    
+    // 这里可以添加音频处理相关的代码
+    // TODO: 添加麦克风到ISP的数据处理逻辑
+    
     osDelay(1);
   }
   /* USER CODE END mic2isp_task */
@@ -717,6 +772,10 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+  ERROR_PRINTF("Critical Error Occurred!");
+  ERROR_PRINTF("System halted - check hardware connections");
+  ERROR_PRINTF("Tick: %lu ms", HAL_GetTick());
+  
   __disable_irq();
   while (1)
   {
