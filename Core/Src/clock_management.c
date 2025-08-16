@@ -1,5 +1,6 @@
 #include "clock_management.h"
 #include "cmsis_os.h"
+#include <stdio.h>
 
 /* External HAL Handle defined in main.c */
 extern UART_HandleTypeDef huart3;

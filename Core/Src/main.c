@@ -26,6 +26,9 @@
 #include "string.h"
 #include "ffconf.h"
 #include "clock_management.h"
+#include "shell_port.h"
+#include "shell.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -72,7 +75,8 @@ const osThreadAttr_t mic2isp_attributes = {
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
 /* USER CODE BEGIN PV */
-
+// Shell实例声明
+extern Shell shell;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -140,11 +144,11 @@ int main(void)
   MX_GPIO_Init();
   MX_BDMA_Init();
   MX_SAI4_Init();
-  // 初始化调试系统
+  // 初始化UART3用于Shell
   MX_USART3_UART_Init();
-  debug_init();  
+  // debug_init();  // 已禁用debug系统
   MX_SDMMC1_SD_Init();
-  SUCCESS_PRINTF("SD Card initialized successfully");
+  // SUCCESS_PRINTF("SD Card initialized successfully");
   MX_FATFS_Init();
   MX_IWDG1_Init();
   MX_OCTOSPI1_Init();
@@ -152,16 +156,19 @@ int main(void)
   /* USER CODE BEGIN 2 */
   
   
-  // 打印系统信息
-  debug_print_system_info();
+  // 打印系统信息 - 已禁用
+  // debug_print_system_info();
   
-  // 测试不同级别的调试输出
-  DEBUG_PRINTF("Debug system test - all peripherals initialized");
-  SUCCESS_PRINTF("All hardware initialization completed");
-  INFO_PRINTF("MCU ready, starting FreeRTOS scheduler");
+  // 初始化Shell
+  shell_init();
   
-  // 演示颜色功能测试
-  WARN_PRINTF("This is a warning message test");
+  // 测试不同级别的调试输出 - 已禁用
+  // DEBUG_PRINTF("Debug system test - all peripherals initialized");
+  // SUCCESS_PRINTF("All hardware initialization completed");
+  // INFO_PRINTF("MCU ready, starting FreeRTOS scheduler");
+  
+  // 演示颜色功能测试 - 已禁用
+  // WARN_PRINTF("This is a warning message test");
   
   
   /* USER CODE END 2 */
@@ -578,7 +585,7 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  TASK_PRINTF("DefaultTask started successfully");
+  shellPrint(&shell, "DefaultTask started successfully\r\n");
 
   /* Mount SD card, format if needed, and write file */
   FIL MyFile;     /* File object */
@@ -594,58 +601,58 @@ void StartDefaultTask(void *argument)
     /* Mount failed, check if it's because there is no filesystem */
     if (res == FR_NO_FILESYSTEM)
     {
-      WARN_PRINTF("No filesystem found, attempting to format SD card...");
+      shellPrint(&shell, "No filesystem found, attempting to format SD card...\r\n");
       /*##-2- Format the disk ################################################*/
       res = f_mkfs((TCHAR const*)USERPath, FM_FAT32, 0, workBuffer, sizeof(workBuffer));
       if (res != FR_OK)
       {
-        ERROR_PRINTF("Failed to format SD card. Error: %d", res);
+        shellPrint(&shell, "Failed to format SD card\r\n");
       }
       else
       {
-        SUCCESS_PRINTF("SD card formatted successfully.");
+        shellPrint(&shell, "SD card formatted successfully\r\n");
         /*##-3- Mount again after formatting #################################*/
         res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
         if (res != FR_OK)
         {
-           ERROR_PRINTF("Failed to mount SD card even after format. Error: %d", res);
+           shellPrint(&shell, "Failed to mount SD card even after format\r\n");
         }
       }
     }
     else
     {
-      ERROR_PRINTF("Failed to mount SD card for other reasons. Error: %d", res);
+      shellPrint(&shell, "Failed to mount SD card for other reasons\r\n");
     }
   }
 
   /*##-4- If mount is successful, proceed to write file ####################*/
   if (res == FR_OK)
   {
-    INFO_PRINTF("SD Card mounted successfully");
+    shellPrint(&shell, "SD Card mounted successfully\r\n");
     osDelay(100); /* Add a short delay for card to stabilize before writing */
     /*##-5- Create and Open a new text file object with write access ##########*/
     if(f_open(&MyFile, "hello.txt", FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
     {
       /* 'hello.txt' file Open for write Error */
-      ERROR_PRINTF("Failed to open or create hello.txt");
+      shellPrint(&shell, "Failed to open or create hello.txt\r\n");
     }
     else
     {
-      INFO_PRINTF("hello.txt opened for writing");
+      shellPrint(&shell, "hello.txt opened for writing\r\n");
       /*##-6- Write data to the text file ################################*/
       res = f_write(&MyFile, wtext, strlen(wtext), (void *)&byteswritten);
 
       if((byteswritten == 0) || (res != FR_OK))
       {
         /* 'hello.txt' file Write or EOF Error */
-        ERROR_PRINTF("Failed to write to hello.txt");
+        shellPrint(&shell, "Failed to write to hello.txt\r\n");
       }
       else
       {
-        SUCCESS_PRINTF("Wrote '%s' to hello.txt", wtext);
+        shellPrint(&shell, "Wrote 'helloworld' to hello.txt\r\n");
         /*##-7- Close the open text file #################################*/
         f_close(&MyFile);
-        INFO_PRINTF("hello.txt closed");
+        shellPrint(&shell, "hello.txt closed\r\n");
       }
     }
   }
@@ -653,9 +660,9 @@ void StartDefaultTask(void *argument)
   // 在任务中测试所有时钟配置（只执行一次）
   static uint8_t test_executed = 0;
   if (!test_executed) {
-    INFO_PRINTF("Starting clock profile test in DefaultTask...");
+    shellPrint(&shell, "Starting clock profile test in DefaultTask...\r\n");
     TestAllClockProfiles();
-    INFO_PRINTF("Clock profile test completed in DefaultTask");
+    shellPrint(&shell, "Clock profile test completed in DefaultTask\r\n");
     test_executed = 1;
   }
   
@@ -668,7 +675,10 @@ void StartDefaultTask(void *argument)
     
     // 每10秒输出一次心跳信息
     if (counter % 10000 == 0) {
-      DEBUG_PRINTF("DefaultTask heartbeat - Counter: %lu", counter);
+      // 使用shell输出替代debug输出
+      char msg[64];
+      snprintf(msg, sizeof(msg), "DefaultTask heartbeat - Counter: %lu\r\n", counter);
+      shellPrint(&shell, "%s", msg);
     }
     
     osDelay(1);
@@ -686,10 +696,9 @@ void StartDefaultTask(void *argument)
 void mic2isp_task(void *argument)
 {
   /* USER CODE BEGIN mic2isp_task */
-  TASK_PRINTF("Mic2ISP task started successfully");
+  shellPrint(&shell, "Mic2ISP task started successfully\r\n");
   
   uint32_t task_counter = 0;
-  uint8_t test_data[] = {0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78};
   
   /* Infinite loop */
   for(;;)
@@ -698,12 +707,9 @@ void mic2isp_task(void *argument)
     
     // 每30秒输出一次任务状态
     if (task_counter % 30000 == 0) {
-      DEBUG_PRINTF("Mic2ISP task running - Counter: %lu", task_counter);
-      
-      // 演示十六进制数据打印（彩色）
-      if (task_counter % 120000 == 0) {
-        DEBUG_PRINT_BUFFER(test_data, sizeof(test_data), "Audio Buffer");
-      }
+      char msg[64];
+      snprintf(msg, sizeof(msg), "Mic2ISP task running - Counter: %lu\r\n", task_counter);
+      shellPrint(&shell, "%s", msg);
     }
     
     // 这里可以添加音频处理相关的代码
@@ -845,9 +851,8 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-  ERROR_PRINTF("Critical Error Occurred!");
-  ERROR_PRINTF("System halted - check hardware connections");
-  ERROR_PRINTF("Tick: %lu ms", HAL_GetTick());
+  shellPrint(&shell, "Critical Error Occurred!\r\n");
+  shellPrint(&shell, "System halted - check hardware connections\r\n");
   
   __disable_irq();
   while (1)

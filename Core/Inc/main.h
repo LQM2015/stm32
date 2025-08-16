@@ -31,7 +31,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "debug.h"
+/* debug.h已移除，使用shell作为输出接口 */
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
