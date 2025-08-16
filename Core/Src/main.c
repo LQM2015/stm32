@@ -163,6 +163,7 @@ int main(void)
   // 演示颜色功能测试
   WARN_PRINTF("This is a warning message test");
   
+  
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -649,8 +650,16 @@ void StartDefaultTask(void *argument)
     }
   }
   
+  // 在任务中测试所有时钟配置（只执行一次）
+  static uint8_t test_executed = 0;
+  if (!test_executed) {
+    INFO_PRINTF("Starting clock profile test in DefaultTask...");
+    TestAllClockProfiles();
+    INFO_PRINTF("Clock profile test completed in DefaultTask");
+    test_executed = 1;
+  }
+  
   uint32_t counter = 0;
-  ClockProfile_t current_profile = CLOCK_PROFILE_HIGH_PERF;
   
   /* Infinite loop */
   for(;;)
@@ -660,25 +669,6 @@ void StartDefaultTask(void *argument)
     // 每10秒输出一次心跳信息
     if (counter % 10000 == 0) {
       DEBUG_PRINTF("DefaultTask heartbeat - Counter: %lu", counter);
-    }
-    
-    // 运行20秒后，切换到省电模式
-    if (counter == 20000 && current_profile == CLOCK_PROFILE_HIGH_PERF) {
-      INFO_PRINTF("Switching to Power Save Mode (200 MHz)...");
-      SwitchSystemClock(CLOCK_PROFILE_POWER_SAVE);
-      current_profile = CLOCK_PROFILE_POWER_SAVE;
-      SUCCESS_PRINTF("Switched to Power Save Mode. System Clock is now: %lu Hz", SystemCoreClock);
-    }
-    
-    // 再过20秒后 (总共40秒)，切换回高性能模式
-    if (counter == 40000 && current_profile == CLOCK_PROFILE_POWER_SAVE) {
-      INFO_PRINTF("Switching back to High Performance Mode (550 MHz)...");
-      SwitchSystemClock(CLOCK_PROFILE_HIGH_PERF);
-      current_profile = CLOCK_PROFILE_HIGH_PERF;
-      SUCCESS_PRINTF("Switched to High Performance Mode. System Clock is now: %lu Hz", SystemCoreClock);
-      
-      // 重置计数器，以便可以重复演示
-      counter = 0;
     }
     
     osDelay(1);
