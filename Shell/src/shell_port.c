@@ -33,32 +33,63 @@ static volatile uint8_t uart_rx_flag = 0;
 /* Private function prototypes -----------------------------------------------*/
 
 /**
- * @brief shell写函数
+ * @brief shell写字符串
  * 
- * @param data 数据
- * @param len 数据长度
+ * @param data 字符串
+ * @param len 长度
  * 
- * @return short 实际写入的数据长度
+ * @return short 实际写入的字符长度
  */
-static short shell_write(char *data, unsigned short len)
+short shell_write(char *data, unsigned short len)
 {
-    HAL_UART_Transmit(SHELL_UART, (uint8_t *)data, len, 1000);
+    HAL_UART_Transmit(SHELL_UART, (uint8_t *)data, len, 0xFFFF);
+    
+    // 检查是否需要重新显示命令行提示符和已输入内容
+    // 如果是换行符或回车符，不需要重新显示
+    if (len == 1 && (data[0] == '\r' || data[0] == '\n')) {
+        return len;
+    }
+    
+    // 检查是否是日志输出（包含换行符）
+    for (int i = 0; i < len; i++) {
+        if (data[i] == '\r' || data[i] == '\n') {
+            // 如果shell不处于活动状态（即不在执行命令）且有命令行输入
+            if (!shell.status.isActive && shell.parser.length > 0) {
+                // 等待一小段时间，确保日志输出完成
+                for (volatile int j = 0; j < 1000; j++);
+                
+                // 重新显示提示符
+                HAL_UART_Transmit(SHELL_UART, (uint8_t *)"\r\n", 2, 0xFFFF);
+                HAL_UART_Transmit(SHELL_UART, (uint8_t *)shell.info.user->data.user.name, 
+                                 strlen(shell.info.user->data.user.name), 0xFFFF);
+                HAL_UART_Transmit(SHELL_UART, (uint8_t *)":/$ ", 4, 0xFFFF);
+                
+                // 重新显示已输入的内容
+                if (shell.parser.length > 0) {
+                    HAL_UART_Transmit(SHELL_UART, (uint8_t *)shell.parser.buffer, 
+                                     shell.parser.length, 0xFFFF);
+                }
+            }
+            break;
+        }
+    }
+    
     return len;
 }
 
 /**
- * @brief shell读函数
+ * @brief shell读字符
  * 
- * @param data 数据
- * @param len 数据长度
+ * @param data 字符缓冲区
+ * @param len 读取长度
  * 
- * @return short 实际读取到的数据长度
+ * @return short 实际读取的字符长度
  */
-static short shell_read(char *data, unsigned short len)
+short shell_read(char *data, unsigned short len)
 {
-    uint8_t ch;
-    if (xQueueReceive(shellRxQueue, &ch, 0) == pdTRUE) {
-        *data = ch;
+    uint8_t byte;
+    if (xQueueReceive(shellRxQueue, &byte, 0) == pdTRUE) {
+        *data = byte;
         return 1;
     }
     return 0;
@@ -99,7 +130,7 @@ static int shell_unlock(Shell *shell)
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart == SHELL_UART) {
+    if (huart->Instance == USART3) {
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         
         // 将接收到的字符放入队列
@@ -180,13 +211,11 @@ void shell_init(void)
 }
 
 /**
- * @brief 获取当前shell对象
- * 
- * @return Shell* shell对象指针
+ * @brief 创建shell任务
  */
-Shell* shell_get_instance(void)
+void shell_task_create(void)
 {
-    return &shell;
+    // shell_init函数已经包含了任务创建，这里不需要额外操作
 }
 
 /**
