@@ -35,6 +35,7 @@ extern UART_HandleTypeDef huart3;
 
 /* Exported functions prototypes ---------------------------------------------*/
 void shell_init(void);
+void shell_init_log_output(void);
 Shell* shell_get_instance(void);
 void shell_printf(const char *fmt, ...);
 int shell_exec(const char *cmd);

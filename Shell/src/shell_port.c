@@ -11,6 +11,7 @@
 
 #include "shell_port.h"
 #include "shell.h"
+#include "shell_log.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
@@ -18,6 +19,8 @@
 #include "cmsis_os.h"
 #include <string.h>
 #include <stdarg.h>
+#include <stdio.h>
+
 
 /* Private variables ---------------------------------------------------------*/
 Shell shell;
@@ -134,10 +137,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         
         // 将接收到的字符放入队列
-        xQueueSendFromISR(shellRxQueue, &uart_rx_buffer[0], &xHigherPriorityTaskWoken);
+        BaseType_t result = xQueueSendFromISR(shellRxQueue, &uart_rx_buffer[0], &xHigherPriorityTaskWoken);
+        if (result != pdTRUE) {
+            // 队列满了，记录警告但不影响正常运行
+            // 注意：在中断中不能使用日志系统，因为它可能会阻塞
+        }
         
         // 重新启动接收
-        HAL_UART_Receive_IT(SHELL_UART, uart_rx_buffer, 1);
+        HAL_StatusTypeDef status = HAL_UART_Receive_IT(SHELL_UART, uart_rx_buffer, 1);
+        if (status != HAL_OK) {
+            // UART接收重启失败，但在中断中无法记录日志
+        }
         
         // 如果有更高优先级任务被唤醒，进行任务切换
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -153,9 +163,9 @@ static void shell_task_function(void *argument)
 {
     Shell *shell = (Shell *)argument;
     
-    shellPrint(shell, "Shell task started successfully\r\n");
-    shellPrint(shell, "Shell version: %s\r\n", SHELL_VERSION);
-    shellPrint(shell, "Type 'help' to see available commands\r\n");
+    SHELL_LOG_SYS_INFO("Shell task started successfully");
+    SHELL_LOG_SYS_INFO("Shell version: %s", SHELL_VERSION);
+    SHELL_LOG_SYS_INFO("Type 'help' to see available commands");
     
     // 启动UART中断接收
     HAL_UART_Receive_IT(SHELL_UART, uart_rx_buffer, 1);
@@ -174,7 +184,6 @@ void shell_init(void)
     // 创建互斥锁
     shellMutex = xSemaphoreCreateRecursiveMutex();
     if (shellMutex == NULL) {
-        // 无法输出错误信息，因为shell还未初始化
         return;
     }
     
@@ -190,7 +199,7 @@ void shell_init(void)
     shell.lock = shell_lock;
     shell.unlock = shell_unlock;
     
-    // 初始化shell
+    // 初始化shell核心
     shellInit(&shell, shellBuffer, SHELL_BUFFER_SIZE);
     
     // 创建shell任务
@@ -206,8 +215,17 @@ void shell_init(void)
     if (result != pdPASS) {
         return;
     }
-    
-    // 初始化成功信息将在shell任务中输出
+}
+
+/**
+ * @brief 初始化shell后的日志输出
+ */
+void shell_init_log_output(void)
+{
+    SHELL_LOG_SYS_INFO("Shell system initialized successfully");
+    SHELL_LOG_SYS_DEBUG("Shell mutex created successfully");
+    SHELL_LOG_SYS_DEBUG("Shell RX queue created successfully (size: %d)", SHELL_RX_QUEUE_SIZE);
+    SHELL_LOG_SYS_DEBUG("Shell core initialized (buffer size: %d)", SHELL_BUFFER_SIZE);
 }
 
 /**
@@ -241,7 +259,10 @@ void shell_printf(const char *fmt, ...)
         
         va_list args;
         va_start(args, fmt);
-        shellPrint(&shell, fmt, args);
+        // 使用日志系统替代直接的shellPrint
+        char buffer[256];
+        vsnprintf(buffer, sizeof(buffer), fmt, args);
+        SHELL_LOG_USER_INFO("%s", buffer);
         va_end(args);
         
         xSemaphoreGiveRecursive(shellMutex);

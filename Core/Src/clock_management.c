@@ -1,4 +1,5 @@
 #include "clock_management.h"
+#include "shell_log.h"
 #include "cmsis_os.h"
 #include <stdio.h>
 

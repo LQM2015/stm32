@@ -28,6 +28,7 @@
 #include "clock_management.h"
 #include "shell_port.h"
 #include "shell.h"
+#include "shell_log.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -160,8 +161,17 @@ int main(void)
   // 打印系统信息 - 已禁用
   // debug_print_system_info();
   
+  // 初始化日志系统
+  shellLogInit();
+  
   // 初始化Shell
   shell_init();
+  
+  // 输出Shell初始化日志
+  shell_init_log_output();
+  
+  // 测试日志系统
+  SHELL_LOG_SYS_INFO("System initialization completed, starting FreeRTOS scheduler");
   
   // UART接收中断将在shell任务中启动，这里不需要重复启动
   
@@ -588,7 +598,7 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  shellPrint(&shell, "DefaultTask started successfully\r\n");
+  SHELL_LOG_TASK_INFO("DefaultTask starting...");
 
   /* Mount SD card, format if needed, and write file */
   FIL MyFile;     /* File object */
@@ -597,6 +607,7 @@ void StartDefaultTask(void *argument)
   char wtext[] = "helloworld";
   uint8_t workBuffer[_MAX_SS]; /* Work buffer for f_mkfs() */
 
+  SHELL_LOG_FATFS_INFO("Attempting to mount SD card filesystem...");
   /*##-1- Try to mount the file system ######################################*/
   res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
   if(res != FR_OK)
@@ -604,58 +615,58 @@ void StartDefaultTask(void *argument)
     /* Mount failed, check if it's because there is no filesystem */
     if (res == FR_NO_FILESYSTEM)
     {
-      shellPrint(&shell, "No filesystem found, attempting to format SD card...\r\n");
+      SHELL_LOG_FATFS_WARNING("No filesystem found, attempting to format SD card");
       /*##-2- Format the disk ################################################*/
       res = f_mkfs((TCHAR const*)USERPath, FM_FAT32, 0, workBuffer, sizeof(workBuffer));
       if (res != FR_OK)
       {
-        shellPrint(&shell, "Failed to format SD card\r\n");
+        SHELL_LOG_FATFS_ERROR("Failed to format SD card: %d", res);
       }
       else
       {
-        shellPrint(&shell, "SD card formatted successfully\r\n");
+        SHELL_LOG_FATFS_INFO("SD card formatted successfully");
         /*##-3- Mount again after formatting #################################*/
         res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
         if (res != FR_OK)
         {
-           shellPrint(&shell, "Failed to mount SD card even after format\r\n");
+           SHELL_LOG_FATFS_ERROR("Failed to mount SD card even after format: %d", res);
         }
       }
     }
     else
     {
-      shellPrint(&shell, "Failed to mount SD card for other reasons\r\n");
+      SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", res);
     }
   }
 
   /*##-4- If mount is successful, proceed to write file ####################*/
   if (res == FR_OK)
   {
-    shellPrint(&shell, "SD Card mounted successfully\r\n");
+    SHELL_LOG_FATFS_INFO("SD Card mounted successfully");
     osDelay(100); /* Add a short delay for card to stabilize before writing */
     /*##-5- Create and Open a new text file object with write access ##########*/
     if(f_open(&MyFile, "hello.txt", FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
     {
       /* 'hello.txt' file Open for write Error */
-      shellPrint(&shell, "Failed to open or create hello.txt\r\n");
+      SHELL_LOG_FATFS_ERROR("Failed to open or create hello.txt");
     }
     else
     {
-      shellPrint(&shell, "hello.txt opened for writing\r\n");
+      SHELL_LOG_FATFS_DEBUG("hello.txt opened for writing");
       /*##-6- Write data to the text file ################################*/
       res = f_write(&MyFile, wtext, strlen(wtext), (void *)&byteswritten);
 
       if((byteswritten == 0) || (res != FR_OK))
       {
         /* 'hello.txt' file Write or EOF Error */
-        shellPrint(&shell, "Failed to write to hello.txt\r\n");
+        SHELL_LOG_FATFS_ERROR("Failed to write to hello.txt: %d", res);
       }
       else
       {
-        shellPrint(&shell, "Wrote 'helloworld' to hello.txt\r\n");
+        SHELL_LOG_FATFS_INFO("Successfully wrote %lu bytes to hello.txt", byteswritten);
         /*##-7- Close the open text file #################################*/
         f_close(&MyFile);
-        shellPrint(&shell, "hello.txt closed\r\n");
+        SHELL_LOG_FATFS_DEBUG("hello.txt closed");
       }
     }
   }
@@ -663,9 +674,9 @@ void StartDefaultTask(void *argument)
   // 在任务中测试所有时钟配置（只执行一次）
   static uint8_t test_executed = 0;
   if (!test_executed) {
-    shellPrint(&shell, "Starting clock profile test in DefaultTask...\r\n");
+    SHELL_LOG_CLK_INFO("Starting clock profile test in DefaultTask");
     //TestAllClockProfiles();
-    shellPrint(&shell, "Clock profile test completed in DefaultTask\r\n");
+    SHELL_LOG_CLK_INFO("Clock profile test completed in DefaultTask");
     test_executed = 1;
   }
   
@@ -678,10 +689,8 @@ void StartDefaultTask(void *argument)
     
     // 每10秒输出一次心跳信息
     if (counter % 10000 == 0) {
-      // 使用shell输出替代debug输出
-      char msg[64];
-      snprintf(msg, sizeof(msg), "DefaultTask heartbeat - Counter: %lu\r\n", counter);
-      shellPrint(&shell, "%s", msg);
+      // 使用日志系统记录心跳
+      SHELL_LOG_TASK_DEBUG("DefaultTask heartbeat - Counter: %lu", counter);
     }
     
     osDelay(1);
@@ -699,7 +708,7 @@ void StartDefaultTask(void *argument)
 void mic2isp_task(void *argument)
 {
   /* USER CODE BEGIN mic2isp_task */
-  shellPrint(&shell, "Mic2ISP task started successfully\r\n");
+  SHELL_LOG_TASK_INFO("Mic2ISP task starting...");
   
   uint32_t task_counter = 0;
   
@@ -710,9 +719,7 @@ void mic2isp_task(void *argument)
     
     // 每30秒输出一次任务状态
     if (task_counter % 30000 == 0) {
-      char msg[64];
-      snprintf(msg, sizeof(msg), "Mic2ISP task running - Counter: %lu\r\n", task_counter);
-      shellPrint(&shell, "%s", msg);
+      SHELL_LOG_TASK_DEBUG("Mic2ISP task running - Counter: %lu", task_counter);
     }
     
     // 这里可以添加音频处理相关的代码
@@ -854,8 +861,8 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-  shellPrint(&shell, "Critical Error Occurred!\r\n");
-  shellPrint(&shell, "System halted - check hardware connections\r\n");
+  SHELL_LOG_SYS_ERROR("Critical Error Occurred!");
+  SHELL_LOG_SYS_ERROR("System halted - check hardware connections");
   
   __disable_irq();
   while (1)
