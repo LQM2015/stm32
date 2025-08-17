@@ -52,10 +52,10 @@ static const char* level_names[SHELL_LOG_LEVEL_NONE] = {
 
 /* Level color strings */
 static const char* level_colors[SHELL_LOG_LEVEL_NONE] = {
-    [SHELL_LOG_LEVEL_DEBUG] = SHELL_COLOR_BRIGHT_BLACK,
-    [SHELL_LOG_LEVEL_INFO] = SHELL_COLOR_BRIGHT_CYAN,
-    [SHELL_LOG_LEVEL_WARNING] = SHELL_COLOR_BRIGHT_YELLOW,
-    [SHELL_LOG_LEVEL_ERROR] = SHELL_COLOR_BRIGHT_RED,
+    [SHELL_LOG_LEVEL_DEBUG] = SHELL_LOG_COLOR_DEBUG,
+    [SHELL_LOG_LEVEL_INFO] = SHELL_LOG_COLOR_INFO,
+    [SHELL_LOG_LEVEL_WARNING] = SHELL_LOG_COLOR_WARNING,
+    [SHELL_LOG_LEVEL_ERROR] = SHELL_LOG_COLOR_ERROR,
 };
 
 /**
@@ -198,12 +198,6 @@ void shellLogPrint(ShellLogModule_t module, ShellLogLevel_t level, const char* f
     /* Build log message */
     int offset = 0;
     
-    /* Add color prefix if enabled */
-    if (g_shell_log_config.color_enabled) {
-        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%s", 
-                          shellLogGetLevelColor(level));
-    }
-    
     /* Add timestamp if enabled */
     if (g_shell_log_config.timestamp_enabled) {
         uint32_t tick = HAL_GetTick();
@@ -213,18 +207,20 @@ void shellLogPrint(ShellLogModule_t module, ShellLogLevel_t level, const char* f
                           seconds, milliseconds);
     }
     
-    /* Add level and module */
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "[%s:%s] ", 
-                      shellLogGetLevelName(level), shellLogGetModuleName(module));
-    
-    /* Add user message */
-    offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, format, args);
-    
-    /* Add color reset if enabled */
+    /* Add colored level and module tag */
     if (g_shell_log_config.color_enabled) {
-        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%s", 
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%s[%s:%s]%s ", 
+                          shellLogGetLevelColor(level),
+                          shellLogGetLevelName(level), 
+                          shellLogGetModuleName(module),
                           SHELL_COLOR_RESET);
+    } else {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "[%s:%s] ", 
+                          shellLogGetLevelName(level), shellLogGetModuleName(module));
     }
+    
+    /* Add user message (without color) */
+    offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, format, args);
     
     /* Ensure newline */
     if (offset > 0 && buffer[offset - 1] != '\n') {

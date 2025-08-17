@@ -53,6 +53,12 @@ extern "C" {
 #define SHELL_STYLE_BLINK       "\033[5m"
 #define SHELL_STYLE_REVERSE     "\033[7m"
 
+/* Log Level Colors */
+#define SHELL_LOG_COLOR_DEBUG   SHELL_COLOR_GREEN
+#define SHELL_LOG_COLOR_INFO    SHELL_COLOR_BLUE
+#define SHELL_LOG_COLOR_WARNING SHELL_COLOR_BRIGHT_YELLOW
+#define SHELL_LOG_COLOR_ERROR   SHELL_COLOR_BRIGHT_RED
+
 /**
  * @brief Log levels
  */
