@@ -22,7 +22,10 @@
 #include "usbd_storage_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include "ff_gen_drv.h"
+#include "diskio.h"
+#include "main.h"
+#include "shell_log.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,16 +38,15 @@
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
-  * @brief Usb device.
+  * @brief Usb device library.
   * @{
   */
 
-/** @defgroup USBD_STORAGE
-  * @brief Usb mass storage device module
+/** @addtogroup USBD_STORAGE
   * @{
   */
 
-/** @defgroup USBD_STORAGE_Private_TypesDefinitions
+/** @defgroup USBD_STORAGE_Private_TypesDefinitions USBD_STORAGE_Private_TypesDefinitions
   * @brief Private types.
   * @{
   */
@@ -57,7 +59,7 @@
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_Defines
+/** @defgroup USBD_STORAGE_Private_Defines USBD_STORAGE_Private_Defines
   * @brief Private defines.
   * @{
   */
@@ -74,7 +76,7 @@
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_Macros
+/** @defgroup USBD_STORAGE_Private_Macros USBD_STORAGE_Private_Macros
   * @brief Private macros.
   * @{
   */
@@ -87,7 +89,7 @@
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_Variables
+/** @defgroup USBD_STORAGE_Private_Variables USBD_STORAGE_Private_Variables
   * @brief Private variables.
   * @{
   */
@@ -120,7 +122,7 @@ const int8_t STORAGE_Inquirydata_HS[] = {/* 36 */
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Exported_Variables
+/** @defgroup USBD_STORAGE_Exported_Variables USBD_STORAGE_Exported_Variables
   * @brief Public variables.
   * @{
   */
@@ -135,7 +137,7 @@ extern USBD_HandleTypeDef hUsbDeviceHS;
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_FunctionPrototypes
+/** @defgroup USBD_STORAGE_Private_FunctionPrototypes USBD_STORAGE_Private_FunctionPrototypes
   * @brief Private functions declaration.
   * @{
   */
@@ -169,115 +171,110 @@ USBD_StorageTypeDef USBD_Storage_Interface_fops_HS =
 };
 
 /* Private functions ---------------------------------------------------------*/
-
 /**
-  * @brief  Initializes the storage unit (medium).
-  * @param  lun: Logical unit number.
+  * @brief  Initializes over USB HS IP
+  * @param  lun:
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_Init_HS(uint8_t lun)
 {
-  /* USER CODE BEGIN 9 */
-  UNUSED(lun);
-
+  /* USER CODE BEGIN 2 */
+  SHELL_LOG_FATFS_INFO("USB Storage Init - LUN: %d", lun);
   return (USBD_OK);
-  /* USER CODE END 9 */
+  /* USER CODE END 2 */
 }
 
 /**
-  * @brief  Returns the medium capacity.
-  * @param  lun: Logical unit number.
-  * @param  block_num: Number of total block number.
-  * @param  block_size: Block size.
+  * @brief  .
+  * @param  lun: .
+  * @param  block_num: .
+  * @param  block_size: .
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_size)
 {
-  /* USER CODE BEGIN 10 */
-  UNUSED(lun);
-
+  /* USER CODE BEGIN 3 */
   *block_num  = STORAGE_BLK_NBR;
   *block_size = STORAGE_BLK_SIZ;
+  SHELL_LOG_FATFS_DEBUG("USB Storage GetCapacity - LUN: %d, Blocks: %lu, Size: %d", lun, *block_num, *block_size);
   return (USBD_OK);
-  /* USER CODE END 10 */
+  /* USER CODE END 3 */
 }
 
 /**
-  * @brief   Checks whether the medium is ready.
-  * @param  lun:  Logical unit number.
+  * @brief  .
+  * @param  lun: .
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_IsReady_HS(uint8_t lun)
 {
-  /* USER CODE BEGIN 11 */
-  UNUSED(lun);
-
+  /* USER CODE BEGIN 4 */
+  SHELL_LOG_FATFS_DEBUG("USB Storage IsReady - LUN: %d", lun);
   return (USBD_OK);
-  /* USER CODE END 11 */
+  /* USER CODE END 4 */
 }
 
 /**
-  * @brief  Checks whether the medium is write protected.
-  * @param  lun: Logical unit number.
+  * @brief  .
+  * @param  lun: .
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_IsWriteProtected_HS(uint8_t lun)
 {
-  /* USER CODE BEGIN 12 */
+  /* USER CODE BEGIN 5 */
+  SHELL_LOG_FATFS_DEBUG("USB Storage IsWriteProtected - LUN: %d", lun);
   return (USBD_OK);
-  /* USER CODE END 12 */
+  /* USER CODE END 5 */
 }
 
 /**
-  * @brief  Reads data from the medium.
-  * @param  lun: Logical unit number.
-  * @param  buf: data buffer.
-  * @param  blk_addr: Logical block address.
-  * @param  blk_len: Blocks number.
+  * @brief  .
+  * @param  lun: .
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
-  /* USER CODE BEGIN 13 */
-  UNUSED(lun);
-  UNUSED(buf);
-  UNUSED(blk_addr);
-  UNUSED(blk_len);
-
+  /* USER CODE BEGIN 6 */
+  SHELL_LOG_FATFS_DEBUG("USB Storage Read - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
+  
+  // 简单的虚拟存储实现 - 填充测试数据
+  for(uint16_t i = 0; i < blk_len * STORAGE_BLK_SIZ; i++)
+  {
+    buf[i] = (uint8_t)(i & 0xFF);
+  }
+  
   return (USBD_OK);
-  /* USER CODE END 13 */
+  /* USER CODE END 6 */
 }
 
 /**
-  * @brief  Writes data into the medium.
-  * @param  lun: Logical unit number.
-  * @param  buf: data buffer.
-  * @param  blk_addr: Logical block address.
-  * @param  blk_len: Blocks number.
+  * @brief  .
+  * @param  lun: .
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
-  /* USER CODE BEGIN 14 */
-  UNUSED(lun);
-  UNUSED(buf);
-  UNUSED(blk_addr);
-  UNUSED(blk_len);
-
+  /* USER CODE BEGIN 7 */
+  SHELL_LOG_FATFS_DEBUG("USB Storage Write - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
+  
+  // 简单的虚拟存储实现 - 忽略写入数据
+  // 在实际应用中，这里应该将数据写入到实际的存储设备
+  
   return (USBD_OK);
-  /* USER CODE END 14 */
+  /* USER CODE END 7 */
 }
 
 /**
-  * @brief  Returns the Max Supported LUNs.
+  * @brief  .
   * @param  None
-  * @retval Lun(s) number.
+  * @retval .
   */
 int8_t STORAGE_GetMaxLun_HS(void)
 {
-  /* USER CODE BEGIN 15 */
+  /* USER CODE BEGIN 8 */
+  SHELL_LOG_FATFS_DEBUG("USB Storage GetMaxLun");
   return (STORAGE_LUN_NBR - 1);
-  /* USER CODE END 15 */
+  /* USER CODE END 8 */
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
@@ -291,4 +288,3 @@ int8_t STORAGE_GetMaxLun_HS(void)
 /**
   * @}
   */
-

@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "shell_port.h"
+#include "shell_log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,7 +53,87 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#include <stdio.h>
+#include <string.h>
 
+// 异常调试信息结构
+typedef struct {
+    uint32_t r0, r1, r2, r3, r12, lr, pc, psr;
+    uint32_t cfsr, hfsr, dfsr, afsr, bfar, mmar;
+} ExceptionInfo_t;
+
+// 打印异常信息
+void print_exception_info(ExceptionInfo_t *info, const char *exception_name) {
+    SHELL_LOG_SYS_ERROR("=== %s EXCEPTION ===", exception_name);
+    SHELL_LOG_SYS_ERROR("R0:  0x%08lX  R1:  0x%08lX  R2:  0x%08lX  R3:  0x%08lX", 
+           info->r0, info->r1, info->r2, info->r3);
+    SHELL_LOG_SYS_ERROR("R12: 0x%08lX  LR:  0x%08lX  PC:  0x%08lX  PSR: 0x%08lX", 
+           info->r12, info->lr, info->pc, info->psr);
+    SHELL_LOG_SYS_ERROR("CFSR: 0x%08lX  HFSR: 0x%08lX  DFSR: 0x%08lX  AFSR: 0x%08lX", 
+           info->cfsr, info->hfsr, info->dfsr, info->afsr);
+    SHELL_LOG_SYS_ERROR("BFAR: 0x%08lX  MMAR: 0x%08lX", info->bfar, info->mmar);
+    
+    // 分析具体错误原因
+    if (info->cfsr & 0x0080) SHELL_LOG_SYS_ERROR("- Imprecise data bus error");
+    if (info->cfsr & 0x0040) SHELL_LOG_SYS_ERROR("- Precise data bus error");
+    if (info->cfsr & 0x0020) SHELL_LOG_SYS_ERROR("- Instruction bus error");
+    if (info->cfsr & 0x0010) SHELL_LOG_SYS_ERROR("- Bus fault on unstacking");
+    if (info->cfsr & 0x0008) SHELL_LOG_SYS_ERROR("- Bus fault on stacking");
+    if (info->cfsr & 0x0002) SHELL_LOG_SYS_ERROR("- Data access violation");
+    if (info->cfsr & 0x0001) SHELL_LOG_SYS_ERROR("- Instruction access violation");
+    if (info->cfsr & 0x8000) SHELL_LOG_SYS_ERROR("- Divide by zero");
+    if (info->cfsr & 0x4000) SHELL_LOG_SYS_ERROR("- Unaligned access");
+    if (info->cfsr & 0x0200) SHELL_LOG_SYS_ERROR("- No coprocessor");
+    if (info->cfsr & 0x0100) SHELL_LOG_SYS_ERROR("- Invalid PC load");
+    
+    SHELL_LOG_SYS_ERROR("=========================");
+}
+
+// 获取异常信息的汇编函数
+void get_exception_info(ExceptionInfo_t *info) __attribute__((naked));
+void get_exception_info(ExceptionInfo_t *info) {
+    __asm volatile (
+        "tst lr, #4\n"
+        "ite eq\n"
+        "mrseq r1, msp\n"
+        "mrsne r1, psp\n"
+        "ldm r1, {r2, r3, r12, lr}\n"
+        "str r2, [r0, #0]\n"   // r0
+        "str r3, [r0, #4]\n"   // r1
+        "str r12, [r0, #8]\n"  // r2
+        "str lr, [r0, #12]\n"  // r3
+        "ldr r2, [r1, #16]\n"
+        "str r2, [r0, #16]\n"  // r12
+        "ldr r2, [r1, #20]\n"
+        "str r2, [r0, #20]\n"  // lr
+        "ldr r2, [r1, #24]\n"
+        "str r2, [r0, #24]\n"  // pc
+        "ldr r2, [r1, #28]\n"
+        "str r2, [r0, #28]\n"  // psr
+        
+        // 读取系统控制寄存器
+        "ldr r1, =0xE000ED28\n"
+        "ldr r2, [r1]\n"
+        "str r2, [r0, #32]\n"  // cfsr
+        "ldr r1, =0xE000ED2C\n"
+        "ldr r2, [r1]\n"
+        "str r2, [r0, #36]\n"  // hfsr
+        "ldr r1, =0xE000ED30\n"
+        "ldr r2, [r1]\n"
+        "str r2, [r0, #40]\n"  // dfsr
+        "ldr r1, =0xE000ED3C\n"
+        "ldr r2, [r1]\n"
+        "str r2, [r0, #44]\n"  // afsr
+        "ldr r1, =0xE000ED38\n"
+        "ldr r2, [r1]\n"
+        "str r2, [r0, #48]\n"  // bfar
+        "ldr r1, =0xE000ED34\n"
+        "ldr r2, [r1]\n"
+        "str r2, [r0, #52]\n"  // mmar
+        
+        "bx lr\n"
+    );
+}
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -89,7 +170,9 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  ExceptionInfo_t info;
+  get_exception_info(&info);
+  print_exception_info(&info, "HARD FAULT");
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -104,7 +187,9 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+  ExceptionInfo_t info;
+  get_exception_info(&info);
+  print_exception_info(&info, "MEMORY MANAGEMENT FAULT");
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -119,7 +204,9 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+  ExceptionInfo_t info;
+  get_exception_info(&info);
+  print_exception_info(&info, "BUS FAULT");
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -134,7 +221,9 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+  ExceptionInfo_t info;
+  get_exception_info(&info);
+  print_exception_info(&info, "USAGE FAULT");
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
@@ -212,7 +301,7 @@ void OTG_HS_EP1_IN_IRQHandler(void)
 {
   /* USER CODE BEGIN OTG_HS_EP1_IN_IRQn 0 */
 
-  /* USER CODE END OTG_HS_EP1_IN_IRQn 0 */
+  /* USER CODE END OTG_HS_EP1_OUT_IRQn 0 */
   HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
   /* USER CODE BEGIN OTG_HS_EP1_IN_IRQn 1 */
 
