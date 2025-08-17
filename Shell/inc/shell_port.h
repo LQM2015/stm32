@@ -38,6 +38,7 @@ void shell_init(void);
 Shell* shell_get_instance(void);
 void shell_printf(const char *fmt, ...);
 int shell_exec(const char *cmd);
+uint8_t* shell_get_rx_buffer(void);
 
 #ifdef __cplusplus
 }

@@ -99,7 +99,7 @@ static int shell_unlock(Shell *shell)
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == SHELL_UART.Instance) {
+    if (huart == SHELL_UART) {
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         
         // 将接收到的字符放入队列
@@ -187,6 +187,16 @@ void shell_init(void)
 Shell* shell_get_instance(void)
 {
     return &shell;
+}
+
+/**
+ * @brief 获取UART接收缓冲区指针
+ * 
+ * @return uint8_t* 接收缓冲区指针
+ */
+uint8_t* shell_get_rx_buffer(void)
+{
+    return uart_rx_buffer;
 }
 
 /**

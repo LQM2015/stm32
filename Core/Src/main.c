@@ -94,7 +94,8 @@ void StartDefaultTask(void *argument);
 void mic2isp_task(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+// 声明UART接收回调函数
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -150,7 +151,7 @@ int main(void)
   MX_SDMMC1_SD_Init();
   // SUCCESS_PRINTF("SD Card initialized successfully");
   MX_FATFS_Init();
-  MX_IWDG1_Init();
+  // MX_IWDG1_Init();  // 暂时禁用看门狗用于调试
   MX_OCTOSPI1_Init();
   MX_OCTOSPI2_Init();
   /* USER CODE BEGIN 2 */
@@ -161,6 +162,8 @@ int main(void)
   
   // 初始化Shell
   shell_init();
+  
+  // UART接收中断将在shell任务中启动，这里不需要重复启动
   
   // 测试不同级别的调试输出 - 已禁用
   // DEBUG_PRINTF("Debug system test - all peripherals initialized");
@@ -661,7 +664,7 @@ void StartDefaultTask(void *argument)
   static uint8_t test_executed = 0;
   if (!test_executed) {
     shellPrint(&shell, "Starting clock profile test in DefaultTask...\r\n");
-    TestAllClockProfiles();
+    //TestAllClockProfiles();
     shellPrint(&shell, "Clock profile test completed in DefaultTask\r\n");
     test_executed = 1;
   }
