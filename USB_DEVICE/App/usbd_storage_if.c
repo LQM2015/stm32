@@ -179,7 +179,12 @@ USBD_StorageTypeDef USBD_Storage_Interface_fops_HS =
 int8_t STORAGE_Init_HS(uint8_t lun)
 {
   /* USER CODE BEGIN 2 */
-  SHELL_LOG_FATFS_INFO("USB Storage Init - LUN: %d", lun);
+  DSTATUS status = disk_initialize(lun);
+  SHELL_LOG_FATFS_INFO("USB Storage Init - LUN: %d, Status: %d", lun, status);
+  if (status & STA_NOINIT)
+  {
+    return (USBD_FAIL);
+  }
   return (USBD_OK);
   /* USER CODE END 2 */
 }
@@ -194,8 +199,19 @@ int8_t STORAGE_Init_HS(uint8_t lun)
 int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_size)
 {
   /* USER CODE BEGIN 3 */
-  *block_num  = STORAGE_BLK_NBR;
-  *block_size = STORAGE_BLK_SIZ;
+  DRESULT res;
+
+  res = disk_ioctl(lun, GET_SECTOR_COUNT, block_num);
+  res |= disk_ioctl(lun, GET_SECTOR_SIZE, block_size);
+
+  if(res != RES_OK)
+  {
+    SHELL_LOG_FATFS_ERROR("USB Storage GetCapacity failed - LUN: %d", lun);
+    *block_num  = 0;
+    *block_size = 512; /* Default size */
+    return (USBD_FAIL);
+  }
+
   SHELL_LOG_FATFS_DEBUG("USB Storage GetCapacity - LUN: %d, Blocks: %lu, Size: %d", lun, *block_num, *block_size);
   return (USBD_OK);
   /* USER CODE END 3 */
@@ -209,7 +225,12 @@ int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_
 int8_t STORAGE_IsReady_HS(uint8_t lun)
 {
   /* USER CODE BEGIN 4 */
-  SHELL_LOG_FATFS_DEBUG("USB Storage IsReady - LUN: %d", lun);
+  DSTATUS status = disk_status(lun);
+  SHELL_LOG_FATFS_DEBUG("USB Storage IsReady - LUN: %d, Status: %d", lun, status);
+  if (status & STA_NOINIT)
+  {
+    return (USBD_FAIL);
+  }
   return (USBD_OK);
   /* USER CODE END 4 */
 }
@@ -222,7 +243,12 @@ int8_t STORAGE_IsReady_HS(uint8_t lun)
 int8_t STORAGE_IsWriteProtected_HS(uint8_t lun)
 {
   /* USER CODE BEGIN 5 */
-  SHELL_LOG_FATFS_DEBUG("USB Storage IsWriteProtected - LUN: %d", lun);
+  DSTATUS status = disk_status(lun);
+  SHELL_LOG_FATFS_DEBUG("USB Storage IsWriteProtected - LUN: %d, Status: %d", lun, status);
+  if (status & STA_PROTECT)
+  {
+    return (USBD_FAIL);
+  }
   return (USBD_OK);
   /* USER CODE END 5 */
 }
@@ -235,15 +261,20 @@ int8_t STORAGE_IsWriteProtected_HS(uint8_t lun)
 int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
   /* USER CODE BEGIN 6 */
+  DRESULT res;
   SHELL_LOG_FATFS_DEBUG("USB Storage Read - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
-  
-  // 简单的虚拟存储实现 - 填充测试数据
-  for(uint16_t i = 0; i < blk_len * STORAGE_BLK_SIZ; i++)
+
+  res = disk_read(lun, buf, blk_addr, blk_len);
+
+  if (res == RES_OK)
   {
-    buf[i] = (uint8_t)(i & 0xFF);
+    return (USBD_OK);
   }
-  
-  return (USBD_OK);
+  else
+  {
+    SHELL_LOG_FATFS_ERROR("USB Storage Read failed - LUN: %d, res: %d", lun, res);
+    return (USBD_FAIL);
+  }
   /* USER CODE END 6 */
 }
 
@@ -255,12 +286,20 @@ int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t bl
 int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
   /* USER CODE BEGIN 7 */
+  DRESULT res;
   SHELL_LOG_FATFS_DEBUG("USB Storage Write - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
-  
-  // 简单的虚拟存储实现 - 忽略写入数据
-  // 在实际应用中，这里应该将数据写入到实际的存储设备
-  
-  return (USBD_OK);
+
+  res = disk_write(lun, buf, blk_addr, blk_len);
+
+  if (res == RES_OK)
+  {
+    return (USBD_OK);
+  }
+  else
+  {
+    SHELL_LOG_FATFS_ERROR("USB Storage Write failed - LUN: %d, res: %d", lun, res);
+    return (USBD_FAIL);
+  }
   /* USER CODE END 7 */
 }
 

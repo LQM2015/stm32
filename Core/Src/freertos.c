@@ -25,6 +25,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stm32h7xx_hal.h"
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -106,6 +108,18 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
    /* Run time stack overflow checking is performed if
    configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
    called if a stack overflow is detected. */
+   
+   // 使用HAL_UART_Transmit直接发送错误信息，避免使用可能导致问题的日志系统
+   extern UART_HandleTypeDef huart3;
+   char error_msg[100];
+   int len = snprintf(error_msg, sizeof(error_msg), "\r\n[FATAL] Stack overflow in task: %s\r\n", pcTaskName);
+   HAL_UART_Transmit(&huart3, (uint8_t*)error_msg, len, 1000);
+   
+   // 禁用中断并进入死循环
+   __disable_irq();
+   while(1) {
+     // 闪烁LED或其他指示
+   }
 }
 /* USER CODE END 4 */
 
@@ -122,6 +136,17 @@ void vApplicationMallocFailedHook(void)
    FreeRTOSConfig.h, and the xPortGetFreeHeapSize() API function can be used
    to query the size of free heap space that remains (although it does not
    provide information on how the remaining heap might be fragmented). */
+   
+   // 使用HAL_UART_Transmit直接发送错误信息
+   extern UART_HandleTypeDef huart3;
+   char error_msg[] = "\r\n[FATAL] Memory allocation failed!\r\n";
+   HAL_UART_Transmit(&huart3, (uint8_t*)error_msg, sizeof(error_msg)-1, 1000);
+   
+   // 禁用中断并进入死循环
+   __disable_irq();
+   while(1) {
+     // 闪烁LED或其他指示
+   }
 }
 /* USER CODE END 5 */
 

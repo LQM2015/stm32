@@ -20,7 +20,8 @@
 
 uint8_t retUSER;    /* Return value for USER */
 char USERPath[4];   /* USER logical drive path */
-FATFS USERFatFS;    /* File system object for USER logical drive */
+/* This object is used by the FatFs library and must be in non-cached RAM for DMA to work correctly with D-Cache enabled. */
+FATFS USERFatFS __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));    /* File system object for USER logical drive */
 FIL USERFile;       /* File object for USER */
 
 /* USER CODE BEGIN Variables */

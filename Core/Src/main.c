@@ -137,6 +137,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  HAL_PWREx_EnableUSBVoltageDetector();
 
   /* USER CODE END SysInit */
 
@@ -181,7 +182,9 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Init scheduler */
+  SHELL_LOG_SYS_INFO("Initializing FreeRTOS kernel...");
   osKernelInitialize();
+  SHELL_LOG_SYS_INFO("FreeRTOS kernel initialized successfully");
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -201,10 +204,22 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
+  SHELL_LOG_SYS_INFO("Creating defaultTask...");
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  if (defaultTaskHandle == NULL) {
+    SHELL_LOG_SYS_ERROR("Failed to create defaultTask!");
+  } else {
+    SHELL_LOG_SYS_INFO("defaultTask created successfully");
+  }
 
   /* creation of mic2isp */
+  SHELL_LOG_SYS_INFO("Creating mic2isp task...");
   mic2ispHandle = osThreadNew(mic2isp_task, NULL, &mic2isp_attributes);
+  if (mic2ispHandle == NULL) {
+    SHELL_LOG_SYS_ERROR("Failed to create mic2isp task!");
+  } else {
+    SHELL_LOG_SYS_INFO("mic2isp task created successfully");
+  }
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -215,7 +230,9 @@ int main(void)
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
+  SHELL_LOG_SYS_INFO("Starting FreeRTOS scheduler...");
   osKernelStart();
+  SHELL_LOG_SYS_ERROR("FreeRTOS scheduler returned - this should never happen!");
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -256,10 +273,10 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 2;
-  RCC_OscInitStruct.PLL.PLLN = 16;
-  RCC_OscInitStruct.PLL.PLLP = 1;
-  RCC_OscInitStruct.PLL.PLLQ = 2;
+  RCC_OscInitStruct.PLL.PLLM = 5;
+  RCC_OscInitStruct.PLL.PLLN = 96;
+  RCC_OscInitStruct.PLL.PLLP = 2;
+  RCC_OscInitStruct.PLL.PLLQ = 10;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
@@ -282,7 +299,14 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SDMMC;
+  PeriphClkInitStruct.SdmmcClockSelection = RCC_SDMMCCLKSOURCE_PLL;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
@@ -561,90 +585,20 @@ static void MX_GPIO_Init(void)
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
-  /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
   SHELL_LOG_TASK_INFO("DefaultTask starting...");
-
-  /* Mount SD card, format if needed, and write file */
-  FIL MyFile;     /* File object */
-  FRESULT res;    /* FatFs function common result code */
-  uint32_t byteswritten; /* File write counts */
-  char wtext[] = "helloworld";
-  uint8_t workBuffer[_MAX_SS]; /* Work buffer for f_mkfs() */
-
-  SHELL_LOG_FATFS_INFO("Attempting to mount SD card filesystem...");
-  /*##-1- Try to mount the file system ######################################*/
-  res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
-  if(res != FR_OK)
-  {
-    /* Mount failed, check if it's because there is no filesystem */
-    if (res == FR_NO_FILESYSTEM)
-    {
-      SHELL_LOG_FATFS_WARNING("No filesystem found, attempting to format SD card");
-      /*##-2- Format the disk ################################################*/
-      res = f_mkfs((TCHAR const*)USERPath, FM_FAT32, 0, workBuffer, sizeof(workBuffer));
-      if (res != FR_OK)
-      {
-        SHELL_LOG_FATFS_ERROR("Failed to format SD card: %d", res);
-      }
-      else
-      {
-        SHELL_LOG_FATFS_INFO("SD card formatted successfully");
-        /*##-3- Mount again after formatting #################################*/
-        res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
-        if (res != FR_OK)
-        {
-           SHELL_LOG_FATFS_ERROR("Failed to mount SD card even after format: %d", res);
-        }
-      }
-    }
-    else
-    {
-      SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", res);
-    }
-  }
-
-  /*##-4- If mount is successful, proceed to write file ####################*/
-  if (res == FR_OK)
-  {
-    SHELL_LOG_FATFS_INFO("SD Card mounted successfully");
-    osDelay(100); /* Add a short delay for card to stabilize before writing */
-    /*##-5- Create and Open a new text file object with write access ##########*/
-    if(f_open(&MyFile, "hello.txt", FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
-    {
-      /* 'hello.txt' file Open for write Error */
-      SHELL_LOG_FATFS_ERROR("Failed to open or create hello.txt");
-    }
-    else
-    {
-      SHELL_LOG_FATFS_DEBUG("hello.txt opened for writing");
-      /*##-6- Write data to the text file ################################*/
-      res = f_write(&MyFile, wtext, strlen(wtext), (void *)&byteswritten);
-
-      if((byteswritten == 0) || (res != FR_OK))
-      {
-        /* 'hello.txt' file Write or EOF Error */
-        SHELL_LOG_FATFS_ERROR("Failed to write to hello.txt: %d", res);
-      }
-      else
-      {
-        SHELL_LOG_FATFS_INFO("Successfully wrote %lu bytes to hello.txt", byteswritten);
-        /*##-7- Close the open text file #################################*/
-        f_close(&MyFile);
-        SHELL_LOG_FATFS_DEBUG("hello.txt closed");
-      }
-    }
-  }
   
-  // 在任务中测试所有时钟配置（只执行一次）
-  static uint8_t test_executed = 0;
-  if (!test_executed) {
-    SHELL_LOG_CLK_INFO("Starting clock profile test in DefaultTask");
-    //TestAllClockProfiles();
-    SHELL_LOG_CLK_INFO("Clock profile test completed in DefaultTask");
-    test_executed = 1;
-  }
+  // 先延迟一下，让系统稳定
+  osDelay(1000);
+  
+  SHELL_LOG_TASK_INFO("DefaultTask: About to initialize USB...");
+  
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
+  
+  SHELL_LOG_TASK_INFO("DefaultTask: USB initialized successfully");
+  SHELL_LOG_TASK_INFO("USB Mass Storage device should now be visible to host");
+  SHELL_LOG_TASK_INFO("Please check Windows Device Manager for USB Mass Storage device");
   
   uint32_t counter = 0;
   
@@ -653,9 +607,8 @@ void StartDefaultTask(void *argument)
   {
     counter++;
     
-    // 每10秒输出一次心跳信息
-    if (counter % 10000 == 0) {
-      // 使用日志系统记录心跳
+    // 每5秒输出一次心跳信息
+    if (counter % 5000 == 0) {
       SHELL_LOG_TASK_DEBUG("DefaultTask heartbeat - Counter: %lu", counter);
     }
     
@@ -792,6 +745,30 @@ void MPU_Config(void)
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER8;
+  MPU_InitStruct.BaseAddress = 0x30000000; // RAM_D2
+  MPU_InitStruct.Size = MPU_REGION_SIZE_32KB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE; // Device memory
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER9;
+  MPU_InitStruct.BaseAddress = 0x38000000; // RAM_D3
+  MPU_InitStruct.Size = MPU_REGION_SIZE_16KB;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE; // Strongly-ordered
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_HFNMI_PRIVDEF);
 
