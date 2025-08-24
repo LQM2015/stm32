@@ -86,8 +86,14 @@ void MX_USB_DEVICE_Init(void)
   }
 
   /* USER CODE BEGIN USB_DEVICE_Init_PostTreatment */
-  HAL_PWREx_EnableUSBVoltageDetector();
-
+  //HAL_PWREx_EnableUSBVoltageDetector();
+  
+  /* 
+   * NOTE: HAL_PWREx_EnableUSBVoltageDetector() has been removed.
+   * According to the schematic, VBUS is not connected for sensing.
+   * The PCD configuration also has vbus_sensing_enable set to DISABLE.
+   * This call is unnecessary and could cause enumeration issues.
+   */
   /* USER CODE END USB_DEVICE_Init_PostTreatment */
 }
 

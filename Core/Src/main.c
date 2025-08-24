@@ -137,7 +137,13 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-  HAL_PWREx_EnableUSBVoltageDetector();
+  /*
+   * 根本原因修复: 禁用USB电压检测器。
+   * 此调用与PCD配置(vbus_sensing_enable = DISABLE)冲突。
+   * 如果VBUS在硬件上未连接用于检测（在纯设备模式下很常见），
+   * 启用此检测器会阻止USB外设正确启动，从而导致枚举失败。
+   */
+  /* HAL_PWREx_EnableUSBVoltageDetector(); */
 
   /* USER CODE END SysInit */
 
@@ -304,7 +310,13 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SDMMC;
+  /*
+   * 根本原因修复: 明确为USB外设配置时钟源。
+   * 此前只配置了SDMMC的时钟，导致USB外设没有时钟输入，无法工作。
+   * 我们将USB和SDMMC的时钟配置合并在一次调用中。
+   */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USB | RCC_PERIPHCLK_SDMMC;
+  PeriphClkInitStruct.UsbClockSelection = RCC_USBCLKSOURCE_PLL;
   PeriphClkInitStruct.SdmmcClockSelection = RCC_SDMMCCLKSOURCE_PLL;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {

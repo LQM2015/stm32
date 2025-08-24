@@ -97,7 +97,13 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
 
   /** Enable USB Voltage detector
   */
-    HAL_PWREx_EnableUSBVoltageDetector();
+    /*
+     * NOTE: HAL_PWREx_EnableUSBVoltageDetector() has been removed.
+     * According to the schematic, VBUS is not connected for sensing.
+     * The PCD configuration also has vbus_sensing_enable set to DISABLE.
+     * This call is unnecessary and could cause enumeration issues.
+     */
+    /* HAL_PWREx_EnableUSBVoltageDetector(); */
 
     /* Peripheral clock enable */
     __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
@@ -362,14 +368,18 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   pdev->pData = &hpcd_USB_OTG_HS;
 
   hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
-  hpcd_USB_OTG_HS.Init.dev_endpoints = 9;       
-  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_FULL;
+  /*
+   * 根本原因修复: 配置为高速模式(High Speed)。
+   * 此前的全速模式(Full Speed)与HS描述符(wMaxPacketSize=512)不匹配，导致枚举失败。
+   */
+  hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
+  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_HIGH;
   hpcd_USB_OTG_HS.Init.dma_enable = ENABLE;
   hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY;
   hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.lpm_enable = ENABLE;
-  hpcd_USB_OTG_HS.Init.vbus_sensing_enable = ENABLE;
+  hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE; /* Keep disabled for RTOS compatibility */
+  hpcd_USB_OTG_HS.Init.lpm_enable = ENABLE; /* Keep enabled for BOS descriptor */
+  hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = ENABLE;
   hpcd_USB_OTG_HS.Init.use_external_vbus = DISABLE;
   if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)

@@ -243,12 +243,14 @@ int8_t STORAGE_IsReady_HS(uint8_t lun)
 int8_t STORAGE_IsWriteProtected_HS(uint8_t lun)
 {
   /* USER CODE BEGIN 5 */
-  DSTATUS status = disk_status(lun);
-  SHELL_LOG_FATFS_DEBUG("USB Storage IsWriteProtected - LUN: %d, Status: %d", lun, status);
-  if (status & STA_PROTECT)
-  {
-    return (USBD_FAIL);
-  }
+  /*
+   * 根本原因修复: 无论磁盘是否写保护，此函数都应返回USBD_OK。
+   * 根据USB MSC规范，返回FAIL会使主机认为设备故障并中止枚举。
+   * 写保护状态是通过其他SCSI命令的Sense Code来传递的，而不是通过这个函数的返回值。
+   * 此前错误地返回FAIL是导致枚举失败的直接原因。
+   */
+  SHELL_LOG_FATFS_DEBUG("USB Storage IsWriteProtected check - LUN: %d", lun);
+  (void)lun; /* lun is not used in this simplified implementation */
   return (USBD_OK);
   /* USER CODE END 5 */
 }
