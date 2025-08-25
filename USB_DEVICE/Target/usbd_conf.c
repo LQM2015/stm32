@@ -373,7 +373,7 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
    * 此前的全速模式(Full Speed)与HS描述符(wMaxPacketSize=512)不匹配，导致枚举失败。
    */
   hpcd_USB_OTG_HS.Init.dev_endpoints = 8;
-  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_HIGH;
+  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_FULL;
   /*
    * 根本原因修复: 禁用DMA。
    * 根据官方参考例程，启用DMA可能导致因内存对齐问题而在枚举阶段失败。

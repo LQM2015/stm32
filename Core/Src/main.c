@@ -188,9 +188,7 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Init scheduler */
-  SHELL_LOG_SYS_INFO("Initializing FreeRTOS kernel...");
   osKernelInitialize();
-  SHELL_LOG_SYS_INFO("FreeRTOS kernel initialized successfully");
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -210,22 +208,10 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  SHELL_LOG_SYS_INFO("Creating defaultTask...");
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-  if (defaultTaskHandle == NULL) {
-    SHELL_LOG_SYS_ERROR("Failed to create defaultTask!");
-  } else {
-    SHELL_LOG_SYS_INFO("defaultTask created successfully");
-  }
 
   /* creation of mic2isp */
-  SHELL_LOG_SYS_INFO("Creating mic2isp task...");
   mic2ispHandle = osThreadNew(mic2isp_task, NULL, &mic2isp_attributes);
-  if (mic2ispHandle == NULL) {
-    SHELL_LOG_SYS_ERROR("Failed to create mic2isp task!");
-  } else {
-    SHELL_LOG_SYS_INFO("mic2isp task created successfully");
-  }
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -236,9 +222,7 @@ int main(void)
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
-  SHELL_LOG_SYS_INFO("Starting FreeRTOS scheduler...");
   osKernelStart();
-  SHELL_LOG_SYS_ERROR("FreeRTOS scheduler returned - this should never happen!");
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -597,6 +581,8 @@ static void MX_GPIO_Init(void)
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
   SHELL_LOG_TASK_INFO("DefaultTask starting...");
   
@@ -606,7 +592,7 @@ void StartDefaultTask(void *argument)
   SHELL_LOG_TASK_INFO("DefaultTask: About to initialize USB...");
   
   /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
+  //MX_USB_DEVICE_Init();
   
   SHELL_LOG_TASK_INFO("DefaultTask: USB initialized successfully");
   SHELL_LOG_TASK_INFO("USB Mass Storage device should now be visible to host");

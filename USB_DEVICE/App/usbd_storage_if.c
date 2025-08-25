@@ -38,15 +38,16 @@
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
-  * @brief Usb device library.
+  * @brief Usb device.
   * @{
   */
 
-/** @addtogroup USBD_STORAGE
+/** @defgroup USBD_STORAGE
+  * @brief Usb mass storage device module
   * @{
   */
 
-/** @defgroup USBD_STORAGE_Private_TypesDefinitions USBD_STORAGE_Private_TypesDefinitions
+/** @defgroup USBD_STORAGE_Private_TypesDefinitions
   * @brief Private types.
   * @{
   */
@@ -59,7 +60,7 @@
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_Defines USBD_STORAGE_Private_Defines
+/** @defgroup USBD_STORAGE_Private_Defines
   * @brief Private defines.
   * @{
   */
@@ -76,7 +77,7 @@
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_Macros USBD_STORAGE_Private_Macros
+/** @defgroup USBD_STORAGE_Private_Macros
   * @brief Private macros.
   * @{
   */
@@ -89,7 +90,7 @@
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_Variables USBD_STORAGE_Private_Variables
+/** @defgroup USBD_STORAGE_Private_Variables
   * @brief Private variables.
   * @{
   */
@@ -122,7 +123,7 @@ const int8_t STORAGE_Inquirydata_HS[] = {/* 36 */
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Exported_Variables USBD_STORAGE_Exported_Variables
+/** @defgroup USBD_STORAGE_Exported_Variables
   * @brief Public variables.
   * @{
   */
@@ -137,7 +138,7 @@ extern USBD_HandleTypeDef hUsbDeviceHS;
   * @}
   */
 
-/** @defgroup USBD_STORAGE_Private_FunctionPrototypes USBD_STORAGE_Private_FunctionPrototypes
+/** @defgroup USBD_STORAGE_Private_FunctionPrototypes
   * @brief Private functions declaration.
   * @{
   */
@@ -171,14 +172,15 @@ USBD_StorageTypeDef USBD_Storage_Interface_fops_HS =
 };
 
 /* Private functions ---------------------------------------------------------*/
+
 /**
-  * @brief  Initializes over USB HS IP
-  * @param  lun:
+  * @brief  Initializes the storage unit (medium).
+  * @param  lun: Logical unit number.
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_Init_HS(uint8_t lun)
 {
-  /* USER CODE BEGIN 2 */
+  /* USER CODE BEGIN 9 */
   DSTATUS status = disk_initialize(lun);
   SHELL_LOG_FATFS_INFO("USB Storage Init - LUN: %d, Status: %d", lun, status);
   if (status & STA_NOINIT)
@@ -186,19 +188,19 @@ int8_t STORAGE_Init_HS(uint8_t lun)
     return (USBD_FAIL);
   }
   return (USBD_OK);
-  /* USER CODE END 2 */
+  /* USER CODE END 9 */
 }
 
 /**
-  * @brief  .
-  * @param  lun: .
-  * @param  block_num: .
-  * @param  block_size: .
+  * @brief  Returns the medium capacity.
+  * @param  lun: Logical unit number.
+  * @param  block_num: Number of total block number.
+  * @param  block_size: Block size.
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_size)
 {
-  /* USER CODE BEGIN 3 */
+  /* USER CODE BEGIN 10 */
   DRESULT res;
 
   res = disk_ioctl(lun, GET_SECTOR_COUNT, block_num);
@@ -214,17 +216,17 @@ int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_
 
   SHELL_LOG_FATFS_DEBUG("USB Storage GetCapacity - LUN: %d, Blocks: %lu, Size: %d", lun, *block_num, *block_size);
   return (USBD_OK);
-  /* USER CODE END 3 */
+  /* USER CODE END 10 */
 }
 
 /**
-  * @brief  .
-  * @param  lun: .
+  * @brief   Checks whether the medium is ready.
+  * @param  lun:  Logical unit number.
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_IsReady_HS(uint8_t lun)
 {
-  /* USER CODE BEGIN 4 */
+  /* USER CODE BEGIN 11 */
   DSTATUS status = disk_status(lun);
   SHELL_LOG_FATFS_DEBUG("USB Storage IsReady - LUN: %d, Status: %d", lun, status);
   if (status & STA_NOINIT)
@@ -232,17 +234,17 @@ int8_t STORAGE_IsReady_HS(uint8_t lun)
     return (USBD_FAIL);
   }
   return (USBD_OK);
-  /* USER CODE END 4 */
+  /* USER CODE END 11 */
 }
 
 /**
-  * @brief  .
-  * @param  lun: .
+  * @brief  Checks whether the medium is write protected.
+  * @param  lun: Logical unit number.
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_IsWriteProtected_HS(uint8_t lun)
 {
-  /* USER CODE BEGIN 5 */
+  /* USER CODE BEGIN 12 */
   /*
    * 根本原因修复: 无论磁盘是否写保护，此函数都应返回USBD_OK。
    * 根据USB MSC规范，返回FAIL会使主机认为设备故障并中止枚举。
@@ -252,17 +254,20 @@ int8_t STORAGE_IsWriteProtected_HS(uint8_t lun)
   SHELL_LOG_FATFS_DEBUG("USB Storage IsWriteProtected check - LUN: %d", lun);
   (void)lun; /* lun is not used in this simplified implementation */
   return (USBD_OK);
-  /* USER CODE END 5 */
+  /* USER CODE END 12 */
 }
 
 /**
-  * @brief  .
-  * @param  lun: .
+  * @brief  Reads data from the medium.
+  * @param  lun: Logical unit number.
+  * @param  buf: data buffer.
+  * @param  blk_addr: Logical block address.
+  * @param  blk_len: Blocks number.
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
-  /* USER CODE BEGIN 6 */
+  /* USER CODE BEGIN 13 */
   DRESULT res;
   SHELL_LOG_FATFS_DEBUG("USB Storage Read - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
 
@@ -277,17 +282,20 @@ int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t bl
     SHELL_LOG_FATFS_ERROR("USB Storage Read failed - LUN: %d, res: %d", lun, res);
     return (USBD_FAIL);
   }
-  /* USER CODE END 6 */
+  /* USER CODE END 13 */
 }
 
 /**
-  * @brief  .
-  * @param  lun: .
+  * @brief  Writes data into the medium.
+  * @param  lun: Logical unit number.
+  * @param  buf: data buffer.
+  * @param  blk_addr: Logical block address.
+  * @param  blk_len: Blocks number.
   * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
 int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
-  /* USER CODE BEGIN 7 */
+  /* USER CODE BEGIN 14 */
   DRESULT res;
   SHELL_LOG_FATFS_DEBUG("USB Storage Write - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
 
@@ -302,20 +310,20 @@ int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t b
     SHELL_LOG_FATFS_ERROR("USB Storage Write failed - LUN: %d, res: %d", lun, res);
     return (USBD_FAIL);
   }
-  /* USER CODE END 7 */
+  /* USER CODE END 14 */
 }
 
 /**
-  * @brief  .
+  * @brief  Returns the Max Supported LUNs.
   * @param  None
-  * @retval .
+  * @retval Lun(s) number.
   */
 int8_t STORAGE_GetMaxLun_HS(void)
 {
-  /* USER CODE BEGIN 8 */
+  /* USER CODE BEGIN 15 */
   SHELL_LOG_FATFS_DEBUG("USB Storage GetMaxLun");
   return (STORAGE_LUN_NBR - 1);
-  /* USER CODE END 8 */
+  /* USER CODE END 15 */
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
@@ -329,3 +337,4 @@ int8_t STORAGE_GetMaxLun_HS(void)
 /**
   * @}
   */
+

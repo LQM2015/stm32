@@ -3,3 +3,5 @@ Debug
 .settings
 MSC_Standalone
 Release
+build
+.vscode

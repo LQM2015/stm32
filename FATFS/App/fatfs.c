@@ -26,6 +26,7 @@ FIL USERFile;       /* File object for USER */
 
 /* USER CODE BEGIN Variables */
 
+
 /* USER CODE END Variables */
 
 void MX_FATFS_Init(void)
