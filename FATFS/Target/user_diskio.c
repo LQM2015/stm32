@@ -135,6 +135,13 @@ DRESULT USER_read (
   hal_res = HAL_SD_ReadBlocks(&hsd1, (uint8_t *)buff, sector, count, HAL_MAX_DELAY);
   if (hal_res == HAL_OK)
   {
+    /*
+     * 根本原因修复: 缓存一致性问题。
+     * SD卡数据由DMA直接写入内存，CPU的D-Cache可能含有旧的、无效的数据。
+     * 在DMA读操作完成后，必须使对应内存区域的D-Cache失效，
+     * 强制CPU下次访问时从内存重新加载最新数据。
+     */
+    SCB_InvalidateDCache_by_Addr((uint32_t*)buff, count * 512);
     res = RES_OK;
   }
   else
@@ -169,6 +176,12 @@ DRESULT USER_write (
   if (pdrv != 0) return RES_PARERR;
 
   // INFO_PRINTF("USER_write: sector=%lu, count=%u", sector, count);
+  /*
+   * 根本原因修复: 缓存一致性问题。
+   * 在DMA从内存读取数据写入SD卡之前，必须先将D-Cache中已修改但未写回内存的数据“清理”回内存。
+   * 这确保DMA读取到的是最新的数据。
+   */
+  SCB_CleanDCache_by_Addr((uint32_t*)buff, count * 512);
   hal_res = HAL_SD_WriteBlocks(&hsd1, (const uint8_t *)buff, sector, count, HAL_MAX_DELAY);
   if (hal_res == HAL_OK)
   {

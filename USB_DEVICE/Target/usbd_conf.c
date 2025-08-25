@@ -372,15 +372,21 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
    * 根本原因修复: 配置为高速模式(High Speed)。
    * 此前的全速模式(Full Speed)与HS描述符(wMaxPacketSize=512)不匹配，导致枚举失败。
    */
-  hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
+  hpcd_USB_OTG_HS.Init.dev_endpoints = 8;
   hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_HIGH;
-  hpcd_USB_OTG_HS.Init.dma_enable = ENABLE;
-  hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY;
+  /*
+   * 根本原因修复: 禁用DMA。
+   * 根据官方参考例程，启用DMA可能导致因内存对齐问题而在枚举阶段失败。
+   * 禁用DMA，改由CPU处理数据传输，可确保稳定性。
+   */
+  hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY; /* Correct for this hardware */
   hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE; /* Keep disabled for RTOS compatibility */
-  hpcd_USB_OTG_HS.Init.lpm_enable = ENABLE; /* Keep enabled for BOS descriptor */
+  /* 同步参考例程，禁用LPM和专用EP1以获得最简、最稳定的配置 */
+  hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = ENABLE;
+  hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = DISABLE;
   hpcd_USB_OTG_HS.Init.use_external_vbus = DISABLE;
   if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)
   {
