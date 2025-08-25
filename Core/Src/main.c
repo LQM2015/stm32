@@ -610,7 +610,7 @@ void StartDefaultTask(void *argument)
       SHELL_LOG_TASK_DEBUG("DefaultTask heartbeat - Counter: %lu", counter);
     }
     
-    osDelay(1);
+    osDelay(1000);
   }
   /* USER CODE END 5 */
 }
@@ -642,7 +642,7 @@ void mic2isp_task(void *argument)
     // 这里可以添加音频处理相关的代码
     // TODO: 添加麦克风到ISP的数据处理逻辑
     
-    osDelay(1);
+    osDelay(100);
   }
   /* USER CODE END mic2isp_task */
 }
