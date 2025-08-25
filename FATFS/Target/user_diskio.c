@@ -132,6 +132,16 @@ DRESULT USER_read (
   if (pdrv != 0) return RES_PARERR;
 
   // INFO_PRINTF("USER_read: sector=%lu, count=%u", sector, count);
+  
+  // 临时禁用缓存操作来测试
+  // /*
+  //  * 缓存一致性修复: 在DMA操作前清理缓存
+  //  * 确保缓存地址32字节对齐 - STM32H7缓存线大小为32字节
+  //  */
+  // uint32_t aligned_addr = (uint32_t)buff & ~0x1F;  // 32字节对齐
+  // uint32_t aligned_size = ((count * 512) + 31) & ~0x1F;  // 向上对齐到32字节边界
+  // SCB_CleanInvalidateDCache_by_Addr((uint32_t*)aligned_addr, aligned_size);
+  
   hal_res = HAL_SD_ReadBlocks(&hsd1, (uint8_t *)buff, sector, count, HAL_MAX_DELAY);
   if (hal_res == HAL_OK)
   {
@@ -141,7 +151,8 @@ DRESULT USER_read (
      * 在DMA读操作完成后，必须使对应内存区域的D-Cache失效，
      * 强制CPU下次访问时从内存重新加载最新数据。
      */
-    SCB_InvalidateDCache_by_Addr((uint32_t*)buff, count * 512);
+    // 临时禁用缓存失效操作
+    // SCB_InvalidateDCache_by_Addr((uint32_t*)aligned_addr, aligned_size);
     res = RES_OK;
   }
   else

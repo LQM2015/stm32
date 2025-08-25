@@ -143,13 +143,13 @@ extern USBD_HandleTypeDef hUsbDeviceHS;
   * @{
   */
 
-static int8_t STORAGE_Init_HS(uint8_t lun);
-static int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_size);
-static int8_t STORAGE_IsReady_HS(uint8_t lun);
-static int8_t STORAGE_IsWriteProtected_HS(uint8_t lun);
-static int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len);
-static int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len);
-static int8_t STORAGE_GetMaxLun_HS(void);
+int8_t STORAGE_Init_HS(uint8_t lun);
+int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_size);
+int8_t STORAGE_IsReady_HS(uint8_t lun);
+int8_t STORAGE_IsWriteProtected_HS(uint8_t lun);
+int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len);
+int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len);
+int8_t STORAGE_GetMaxLun_HS(void);
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_DECLARATION */
 
@@ -271,6 +271,11 @@ int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t bl
   DRESULT res;
   SHELL_LOG_FATFS_DEBUG("USB Storage Read - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
 
+  /*
+   * 重要修复: USB DMA已禁用 (hpcd_USB_OTG_HS.Init.dma_enable = DISABLE)
+   * 因此不需要缓存操作，缓存操作反而会破坏数据
+   */
+  
   res = disk_read(lun, buf, blk_addr, blk_len);
 
   if (res == RES_OK)
@@ -299,6 +304,11 @@ int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t b
   DRESULT res;
   SHELL_LOG_FATFS_DEBUG("USB Storage Write - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
 
+  /*
+   * 重要修复: USB DMA已禁用 (hpcd_USB_OTG_HS.Init.dma_enable = DISABLE)
+   * 因此不需要缓存操作，缓存操作反而会破坏数据
+   */
+  
   res = disk_write(lun, buf, blk_addr, blk_len);
 
   if (res == RES_OK)

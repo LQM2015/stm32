@@ -18,8 +18,10 @@
 #include "task.h"
 #include "cmsis_os.h"
 #include "ff.h"
+#include "diskio.h"
 #include "usbd_core.h"
 #include "usb_device.h"
+#include "usbd_storage_if.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -27,6 +29,9 @@
 // 外部变量声明
 extern SD_HandleTypeDef hsd1;
 extern USBD_HandleTypeDef hUsbDeviceHS;
+
+// 外部函数声明
+extern int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len);
 
 /* 系统信息命令 */
 int cmd_sysinfo(int argc, char *argv[])
@@ -239,6 +244,380 @@ int cmd_usb_status(int argc, char *argv[])
 }
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  usb_status, cmd_usb_status, check USB device and storage status);
+
+/* 详细的分区表诊断命令 */
+int cmd_partition_info(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== Detailed Partition Table Analysis ===");
+    
+    // 读取MBR
+    static uint8_t sector_buffer[512];
+    HAL_StatusTypeDef status = HAL_SD_ReadBlocks(&hsd1, sector_buffer, 0, 1, 5000);
+    if (status != HAL_OK) {
+        SHELL_LOG_SYS_ERROR("Failed to read MBR: %d", status);
+        return -1;
+    }
+    
+    // 检查MBR签名
+    if (sector_buffer[510] != 0x55 || sector_buffer[511] != 0xAA) {
+        SHELL_LOG_SYS_ERROR("Invalid MBR signature: 0x%02X%02X", sector_buffer[511], sector_buffer[510]);
+        return -1;
+    }
+    
+    SHELL_LOG_SYS_INFO("Valid MBR signature found");
+    
+    // 分析每个分区表条目
+    for (int i = 0; i < 4; i++) {
+        uint8_t *partition = &sector_buffer[446 + i * 16];
+        
+        uint8_t status_byte = partition[0];
+        uint8_t partition_type = partition[4];
+        uint32_t start_lba = *(uint32_t*)&partition[8];
+        uint32_t size_sectors = *(uint32_t*)&partition[12];
+        
+        SHELL_LOG_SYS_INFO("=== Partition %d ===", i);
+        SHELL_LOG_SYS_INFO("Status: 0x%02X %s", status_byte, 
+                           (status_byte == 0x80) ? "(Bootable)" : 
+                           (status_byte == 0x00) ? "(Non-bootable)" : "(Invalid)");
+        SHELL_LOG_SYS_INFO("Type: 0x%02X %s", partition_type,
+                           (partition_type == 0x0C) ? "(FAT32 LBA)" :
+                           (partition_type == 0x0B) ? "(FAT32)" :
+                           (partition_type == 0x06) ? "(FAT16)" :
+                           (partition_type == 0x00) ? "(Empty)" : "(Other)");
+        SHELL_LOG_SYS_INFO("Start LBA: %lu", start_lba);
+        SHELL_LOG_SYS_INFO("Size: %lu sectors (%lu MB)", size_sectors, (size_sectors * 512) / (1024*1024));
+        
+        if (partition_type != 0x00) {
+            // 读取分区的第一个扇区（可能是FAT引导扇区）
+            if (start_lba > 0 && start_lba < 30572544) {
+                static uint8_t boot_sector[512];
+                status = HAL_SD_ReadBlocks(&hsd1, boot_sector, start_lba, 1, 5000);
+                if (status == HAL_OK) {
+                    // 检查FAT引导扇区签名
+                    if (boot_sector[510] == 0x55 && boot_sector[511] == 0xAA) {
+                        SHELL_LOG_SYS_INFO("Valid boot sector signature in partition %d", i);
+                        
+                        // 检查文件系统类型
+                        if (strncmp((char*)&boot_sector[54], "FAT", 3) == 0) {
+                            SHELL_LOG_SYS_INFO("FAT12/16 filesystem detected");
+                        } else if (strncmp((char*)&boot_sector[82], "FAT32", 5) == 0) {
+                            SHELL_LOG_SYS_INFO("FAT32 filesystem detected");
+                        } else {
+                            SHELL_LOG_SYS_WARNING("Unknown filesystem in partition %d", i);
+                        }
+                        
+                        // 显示一些FAT参数
+                        uint16_t bytes_per_sector = *(uint16_t*)&boot_sector[11];
+                        uint8_t sectors_per_cluster = boot_sector[13];
+                        uint16_t reserved_sectors = *(uint16_t*)&boot_sector[14];
+                        uint8_t num_fats = boot_sector[16];
+                        
+                        SHELL_LOG_SYS_INFO("Bytes per sector: %u", bytes_per_sector);
+                        SHELL_LOG_SYS_INFO("Sectors per cluster: %u", sectors_per_cluster);
+                        SHELL_LOG_SYS_INFO("Reserved sectors: %u", reserved_sectors);
+                        SHELL_LOG_SYS_INFO("Number of FATs: %u", num_fats);
+                        
+                    } else {
+                        SHELL_LOG_SYS_WARNING("Invalid boot sector signature in partition %d", i);
+                    }
+                } else {
+                    SHELL_LOG_SYS_ERROR("Failed to read boot sector for partition %d", i);
+                }
+            }
+        }
+        SHELL_LOG_SYS_INFO("");
+    }
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 partition_info, cmd_partition_info, analyze partition table in detail);
+
+/* USB诊断和故障排除命令 */
+int cmd_usb_troubleshoot(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== USB Mass Storage Troubleshooting ===");
+    
+    // 1. 检查USB设备状态
+    SHELL_LOG_SYS_INFO("1. USB Device Status:");
+    SHELL_LOG_SYS_INFO("   State: %d %s", hUsbDeviceHS.dev_state,
+                       (hUsbDeviceHS.dev_state == 3) ? "(Configured)" :
+                       (hUsbDeviceHS.dev_state == 2) ? "(Addressed)" :
+                       (hUsbDeviceHS.dev_state == 1) ? "(Default)" : "(Unknown)");
+    SHELL_LOG_SYS_INFO("   Address: %d", hUsbDeviceHS.dev_address);
+    SHELL_LOG_SYS_INFO("   Config: %d", hUsbDeviceHS.dev_config);
+    
+    // 2. 检查SD卡状态
+    SHELL_LOG_SYS_INFO("2. SD Card Status:");
+    HAL_SD_CardStateTypeDef cardState = HAL_SD_GetCardState(&hsd1);
+    SHELL_LOG_SYS_INFO("   Card State: %d %s", cardState,
+                       (cardState == 4) ? "(Transfer Ready)" : "(Not Ready)");
+    
+    // 3. 检查存储容量报告
+    HAL_SD_CardInfoTypeDef cardInfo;
+    if (HAL_SD_GetCardInfo(&hsd1, &cardInfo) == HAL_OK) {
+        SHELL_LOG_SYS_INFO("3. Storage Capacity:");
+        SHELL_LOG_SYS_INFO("   Logical Blocks: %lu", cardInfo.LogBlockNbr);
+        SHELL_LOG_SYS_INFO("   Block Size: %lu", cardInfo.LogBlockSize);
+        uint64_t totalMB = ((uint64_t)cardInfo.LogBlockNbr * cardInfo.LogBlockSize) / (1024*1024);
+        SHELL_LOG_SYS_INFO("   Total Size: %llu MB", totalMB);
+    }
+    
+    // 4. 检查分区表
+    SHELL_LOG_SYS_INFO("4. Partition Check:");
+    static uint8_t sector_buffer[512];
+    if (HAL_SD_ReadBlocks(&hsd1, sector_buffer, 0, 1, 5000) == HAL_OK) {
+        if (sector_buffer[510] == 0x55 && sector_buffer[511] == 0xAA) {
+            SHELL_LOG_SYS_INFO("   MBR Signature: Valid");
+            
+            // 检查第一个分区
+            uint8_t *partition = &sector_buffer[446];
+            if (partition[4] != 0x00) {
+                SHELL_LOG_SYS_INFO("   Primary Partition: Type 0x%02X, Start %lu, Size %lu",
+                                   partition[4], *(uint32_t*)&partition[8], *(uint32_t*)&partition[12]);
+            } else {
+                SHELL_LOG_SYS_WARNING("   No primary partition found!");
+            }
+        } else {
+            SHELL_LOG_SYS_ERROR("   Invalid MBR signature!");
+        }
+    }
+    
+    // 5. 建议的解决方案
+    SHELL_LOG_SYS_INFO("5. Troubleshooting Recommendations:");
+    
+    if (hUsbDeviceHS.dev_state != 3) {
+        SHELL_LOG_SYS_WARNING("   - USB not properly enumerated, try usb_reinit");
+    }
+    
+    if (cardState != 4) {
+        SHELL_LOG_SYS_WARNING("   - SD card not ready, check hardware connection");
+    } else {
+        SHELL_LOG_SYS_INFO("   - Hardware appears functional");
+        SHELL_LOG_SYS_INFO("   - If PC still doesn't recognize:");
+        SHELL_LOG_SYS_INFO("     a) Try different USB cable");
+        SHELL_LOG_SYS_INFO("     b) Try different PC/USB port"); 
+        SHELL_LOG_SYS_INFO("     c) Check Windows Device Manager");
+        SHELL_LOG_SYS_INFO("     d) Format SD card on PC if needed");
+    }
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 usb_troubleshoot, cmd_usb_troubleshoot, comprehensive USB troubleshooting);
+
+/* 测试读取特定扇区的命令 */
+int cmd_read_sector(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    uint32_t sector_addr = 0;
+    if (argc > 1) {
+        sector_addr = strtoul(argv[1], NULL, 0);
+    }
+    
+    SHELL_LOG_SYS_INFO("=== Read Sector %lu ===", sector_addr);
+    
+    static uint8_t sector_buffer[512];
+    HAL_StatusTypeDef status = HAL_SD_ReadBlocks(&hsd1, sector_buffer, sector_addr, 1, 5000);
+    
+    if (status != HAL_OK) {
+        SHELL_LOG_SYS_ERROR("Failed to read sector %lu: %d", sector_addr, status);
+        return -1;
+    }
+    
+    // 显示扇区数据的前64字节
+    SHELL_LOG_SYS_INFO("Sector %lu content (first 64 bytes):", sector_addr);
+    for (int i = 0; i < 64; i += 16) {
+        SHELL_LOG_SYS_INFO("%04X: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                           i,
+                           sector_buffer[i+0], sector_buffer[i+1], sector_buffer[i+2], sector_buffer[i+3],
+                           sector_buffer[i+4], sector_buffer[i+5], sector_buffer[i+6], sector_buffer[i+7],
+                           sector_buffer[i+8], sector_buffer[i+9], sector_buffer[i+10], sector_buffer[i+11],
+                           sector_buffer[i+12], sector_buffer[i+13], sector_buffer[i+14], sector_buffer[i+15]);
+    }
+    
+    // 显示扇区末尾的签名
+    SHELL_LOG_SYS_INFO("Last 16 bytes (including signature):");
+    SHELL_LOG_SYS_INFO("01F0: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                       sector_buffer[496], sector_buffer[497], sector_buffer[498], sector_buffer[499],
+                       sector_buffer[500], sector_buffer[501], sector_buffer[502], sector_buffer[503],
+                       sector_buffer[504], sector_buffer[505], sector_buffer[506], sector_buffer[507],
+                       sector_buffer[508], sector_buffer[509], sector_buffer[510], sector_buffer[511]);
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 read_sector, cmd_read_sector, read and display specific sector content);
+
+/* 测试USB存储读取函数 */
+int cmd_test_usb_read(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    uint32_t sector_addr = 0;
+    if (argc > 1) {
+        sector_addr = strtoul(argv[1], NULL, 0);
+    }
+    
+    SHELL_LOG_SYS_INFO("=== Test USB Storage Read Function ===");
+    SHELL_LOG_SYS_INFO("Testing sector %lu", sector_addr);
+    
+    // 分配一个与USB使用相同的缓冲区
+    static uint8_t usb_buffer[512] __attribute__((aligned(32)));
+    
+    SHELL_LOG_SYS_INFO("USB buffer address: 0x%08lX", (uint32_t)usb_buffer);
+    SHELL_LOG_SYS_INFO("Buffer alignment (& 0x1F): 0x%02X", (uint32_t)usb_buffer & 0x1F);
+    
+    // 清零缓冲区
+    memset(usb_buffer, 0xFF, sizeof(usb_buffer));
+    
+    // 调用USB存储读取函数
+    int8_t result = STORAGE_Read_HS(0, usb_buffer, sector_addr, 1);
+    
+    if (result == USBD_OK) {
+        SHELL_LOG_SYS_INFO("USB Storage Read successful");
+        
+        // 显示读取的数据
+        SHELL_LOG_SYS_INFO("USB buffer content (first 64 bytes):");
+        for (int i = 0; i < 64; i += 16) {
+            SHELL_LOG_SYS_INFO("%04X: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                               i,
+                               usb_buffer[i+0], usb_buffer[i+1], usb_buffer[i+2], usb_buffer[i+3],
+                               usb_buffer[i+4], usb_buffer[i+5], usb_buffer[i+6], usb_buffer[i+7],
+                               usb_buffer[i+8], usb_buffer[i+9], usb_buffer[i+10], usb_buffer[i+11],
+                               usb_buffer[i+12], usb_buffer[i+13], usb_buffer[i+14], usb_buffer[i+15]);
+        }
+        
+        // 显示签名区域
+        SHELL_LOG_SYS_INFO("Signature bytes [510:511]: 0x%02X%02X", usb_buffer[511], usb_buffer[510]);
+        
+    } else {
+        SHELL_LOG_SYS_ERROR("USB Storage Read failed: %d", result);
+    }
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 test_usb_read, cmd_test_usb_read, test USB storage read function directly);
+
+/* 测试缓存对齐效果的命令 */
+int cmd_cache_test(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== Cache Alignment Test ===");
+    
+    // 测试不对齐的缓冲区
+    static uint8_t unaligned_buffer[513];  // 故意不对齐
+    uint8_t *test_buf = unaligned_buffer + 1;  // 偏移1字节使其不对齐
+    
+    SHELL_LOG_SYS_INFO("Unaligned buffer address: 0x%08lX", (uint32_t)test_buf);
+    SHELL_LOG_SYS_INFO("Alignment (& 0x1F): 0x%02X", (uint32_t)test_buf & 0x1F);
+    
+    uint32_t aligned_addr = (uint32_t)test_buf & ~0x1F;
+    uint32_t aligned_size = (512 + 31) & ~0x1F;
+    SHELL_LOG_SYS_INFO("Corrected aligned address: 0x%08lX", aligned_addr);
+    SHELL_LOG_SYS_INFO("Corrected aligned size: %lu", aligned_size);
+    
+    // 测试直接读取
+    DRESULT res = disk_read(0, test_buf, 0, 1);
+    if (res == RES_OK) {
+        SHELL_LOG_SYS_INFO("Direct disk_read successful");
+        SHELL_LOG_SYS_INFO("First 32 bytes:");
+        for (int i = 0; i < 32; i += 16) {
+            SHELL_LOG_SYS_INFO("%04X: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                i, test_buf[i], test_buf[i+1], test_buf[i+2], test_buf[i+3],
+                test_buf[i+4], test_buf[i+5], test_buf[i+6], test_buf[i+7],
+                test_buf[i+8], test_buf[i+9], test_buf[i+10], test_buf[i+11],
+                test_buf[i+12], test_buf[i+13], test_buf[i+14], test_buf[i+15]);
+        }
+    } else {
+        SHELL_LOG_SYS_ERROR("Direct disk_read failed: %d", res);
+    }
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 cache_test, cmd_cache_test, test cache alignment effects);
+
+/* 对比USB和SD卡读取的命令 */
+int cmd_compare_read(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== Compare USB vs Direct SD Card Read ===");
+    
+    static uint8_t usb_buffer[512] __attribute__((aligned(32)));
+    static uint8_t sd_buffer[512] __attribute__((aligned(32)));
+    
+    SHELL_LOG_SYS_INFO("USB buffer: 0x%08lX, SD buffer: 0x%08lX", 
+                      (uint32_t)usb_buffer, (uint32_t)sd_buffer);
+    
+    // 清空缓冲区
+    memset(usb_buffer, 0xAA, sizeof(usb_buffer));
+    memset(sd_buffer, 0x55, sizeof(sd_buffer));
+    
+    // 1. 直接SD卡读取
+    SHELL_LOG_SYS_INFO("1. Direct SD card read:");
+    DRESULT sd_res = disk_read(0, sd_buffer, 0, 1);
+    if (sd_res == RES_OK) {
+        SHELL_LOG_SYS_INFO("SD read successful, first 32 bytes:");
+        for (int i = 0; i < 32; i += 16) {
+            SHELL_LOG_SYS_INFO("%04X: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                i, sd_buffer[i], sd_buffer[i+1], sd_buffer[i+2], sd_buffer[i+3],
+                sd_buffer[i+4], sd_buffer[i+5], sd_buffer[i+6], sd_buffer[i+7],
+                sd_buffer[i+8], sd_buffer[i+9], sd_buffer[i+10], sd_buffer[i+11],
+                sd_buffer[i+12], sd_buffer[i+13], sd_buffer[i+14], sd_buffer[i+15]);
+        }
+    } else {
+        SHELL_LOG_SYS_ERROR("SD read failed: %d", sd_res);
+    }
+    
+    // 2. USB存储接口读取
+    SHELL_LOG_SYS_INFO("2. USB storage interface read:");
+    int8_t usb_res = STORAGE_Read_HS(0, usb_buffer, 0, 1);
+    if (usb_res == USBD_OK) {
+        SHELL_LOG_SYS_INFO("USB read successful, first 32 bytes:");
+        for (int i = 0; i < 32; i += 16) {
+            SHELL_LOG_SYS_INFO("%04X: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                i, usb_buffer[i], usb_buffer[i+1], usb_buffer[i+2], usb_buffer[i+3],
+                usb_buffer[i+4], usb_buffer[i+5], usb_buffer[i+6], usb_buffer[i+7],
+                usb_buffer[i+8], usb_buffer[i+9], usb_buffer[i+10], usb_buffer[i+11],
+                usb_buffer[i+12], usb_buffer[i+13], usb_buffer[i+14], usb_buffer[i+15]);
+        }
+    } else {
+        SHELL_LOG_SYS_ERROR("USB read failed: %d", usb_res);
+    }
+    
+    // 3. 对比数据
+    SHELL_LOG_SYS_INFO("3. Data comparison:");
+    int differences = 0;
+    for (int i = 0; i < 512; i++) {
+        if (sd_buffer[i] != usb_buffer[i]) {
+            differences++;
+            if (differences <= 10) {  // 只显示前10个不同之处
+                SHELL_LOG_SYS_INFO("Diff at [%d]: SD=0x%02X, USB=0x%02X", 
+                                  i, sd_buffer[i], usb_buffer[i]);
+            }
+        }
+    }
+    SHELL_LOG_SYS_INFO("Total differences: %d/512 bytes", differences);
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 compare_read, cmd_compare_read, compare USB vs direct SD card read);
 
 /* 内存信息命令 */
 int cmd_meminfo(int argc, char *argv[])
