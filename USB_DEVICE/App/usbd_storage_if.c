@@ -26,6 +26,11 @@
 #include "diskio.h"
 #include "main.h"
 #include "shell_log.h"
+
+/* 性能优化: 批量读写统计 */
+uint32_t usb_read_count = 0;
+uint32_t usb_write_count = 0;
+uint32_t usb_single_sector_reads = 0;
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -214,7 +219,8 @@ int8_t STORAGE_GetCapacity_HS(uint8_t lun, uint32_t *block_num, uint16_t *block_
     return (USBD_FAIL);
   }
 
-  SHELL_LOG_FATFS_DEBUG("USB Storage GetCapacity - LUN: %d, Blocks: %lu, Size: %d", lun, *block_num, *block_size);
+  /* 性能优化: GetCapacity频繁调用，使用INFO级别减少日志量 */
+  SHELL_LOG_FATFS_INFO("USB GetCapacity - Blocks: %lu, Size: %d", *block_num, *block_size);
   return (USBD_OK);
   /* USER CODE END 10 */
 }
@@ -228,9 +234,10 @@ int8_t STORAGE_IsReady_HS(uint8_t lun)
 {
   /* USER CODE BEGIN 11 */
   DSTATUS status = disk_status(lun);
-  SHELL_LOG_FATFS_DEBUG("USB Storage IsReady - LUN: %d, Status: %d", lun, status);
+  /* 性能优化: IsReady频繁调用，仅在错误时输出日志 */
   if (status & STA_NOINIT)
   {
+    SHELL_LOG_FATFS_WARNING("USB Storage IsReady - LUN: %d, Status: %d", lun, status);
     return (USBD_FAIL);
   }
   return (USBD_OK);
@@ -251,7 +258,8 @@ int8_t STORAGE_IsWriteProtected_HS(uint8_t lun)
    * 写保护状态是通过其他SCSI命令的Sense Code来传递的，而不是通过这个函数的返回值。
    * 此前错误地返回FAIL是导致枚举失败的直接原因。
    */
-  SHELL_LOG_FATFS_DEBUG("USB Storage IsWriteProtected check - LUN: %d", lun);
+  /* 性能优化: 写保护检查频繁调用，使用INFO级别 */
+  // SHELL_LOG_FATFS_INFO("USB Storage IsWriteProtected check - LUN: %d", lun);
   (void)lun; /* lun is not used in this simplified implementation */
   return (USBD_OK);
   /* USER CODE END 12 */
@@ -269,17 +277,45 @@ int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t bl
 {
   /* USER CODE BEGIN 13 */
   DRESULT res;
-  SHELL_LOG_FATFS_DEBUG("USB Storage Read - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
+  
+  /* 性能统计 */
+  usb_read_count++;
+  if(blk_len == 1) {
+    usb_single_sector_reads++;
+    /* 单扇区读取：每100次记录一次，减少日志洪水 */
+    if(usb_single_sector_reads % 100 == 0) {
+      SHELL_LOG_FATFS_INFO("USB Read Progress - Single sector reads: %lu/%lu", 
+                          usb_single_sector_reads, usb_read_count);
+    }
+  } else {
+    /* 多扇区读取仍使用DEBUG级别进行详细跟踪 */
+    SHELL_LOG_FATFS_DEBUG("USB Read Multi - Addr: 0x%08lX, Len: %d", blk_addr, blk_len);
+  }
 
   /*
-   * 重要修复: USB DMA已禁用 (hpcd_USB_OTG_HS.Init.dma_enable = DISABLE)
-   * 因此不需要缓存操作，缓存操作反而会破坏数据
+   * 修复的缓存管理：RAM_D2现在配置为不可缓存，无需缓存操作
    */
+  SHELL_LOG_SYS_INFO("USB Read: LUN=%d, buf=0x%08lX, addr=%lu, len=%d", 
+                    lun, (uint32_t)buf, blk_addr, blk_len);
   
+  // 在读取前显示缓冲区状态
+  SHELL_LOG_SYS_INFO("Buffer before read: [0-3] = %02X %02X %02X %02X", 
+                    buf[0], buf[1], buf[2], buf[3]);
+  
+  SHELL_LOG_SYS_INFO("RAM_D2 region is non-cacheable, no cache operations needed");
+  
+  /* 执行读取 - 由于RAM_D2不可缓存，DMA直接写入内存，CPU立即可见 */
+  SHELL_LOG_SYS_INFO("About to call disk_read...");
   res = disk_read(lun, buf, blk_addr, blk_len);
+  SHELL_LOG_SYS_INFO("disk_read returned: %d", res);
+  
+  // 在读取后显示缓冲区状态
+  SHELL_LOG_SYS_INFO("Buffer after read: [0-3] = %02X %02X %02X %02X", 
+                    buf[0], buf[1], buf[2], buf[3]);
 
   if (res == RES_OK)
   {
+    SHELL_LOG_SYS_INFO("USB Storage Read successful");
     return (USBD_OK);
   }
   else
@@ -302,12 +338,26 @@ int8_t STORAGE_Write_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t b
 {
   /* USER CODE BEGIN 14 */
   DRESULT res;
-  SHELL_LOG_FATFS_DEBUG("USB Storage Write - LUN: %d, Addr: 0x%08lX, Len: %d", lun, blk_addr, blk_len);
+  
+  /* 性能统计 */
+  usb_write_count++;
+  if(blk_len == 1) {
+    /* 单扇区写入：每50次记录一次 */
+    if(usb_write_count % 50 == 0) {
+      SHELL_LOG_FATFS_INFO("USB Write Progress - Count: %lu", usb_write_count);
+    }
+  } else {
+    SHELL_LOG_FATFS_DEBUG("USB Write Multi - Addr: 0x%08lX, Len: %d", blk_addr, blk_len);
+  }
 
   /*
-   * 重要修复: USB DMA已禁用 (hpcd_USB_OTG_HS.Init.dma_enable = DISABLE)
-   * 因此不需要缓存操作，缓存操作反而会破坏数据
+   * DMA缓存一致性操作: 写入前确保数据已写回内存
+   * 关键修复: 使用实际缓冲区地址和大小，不进行对齐计算
    */
+  uint32_t cache_size = blk_len * 512;
+  
+  /* 在DMA写入前，确保CPU缓存中的数据已写回内存 */
+  SCB_CleanDCache_by_Addr((uint32_t*)buf, cache_size);
   
   res = disk_write(lun, buf, blk_addr, blk_len);
 

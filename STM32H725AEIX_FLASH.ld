@@ -162,6 +162,15 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM_D1
 
+  /* DMA buffer section for USB and other DMA operations */
+  .dma_buffer (NOLOAD) :
+  {
+    . = ALIGN(32);  /* Align to cache line boundary */
+    *(.dma_buffer)
+    *(.dma_buffer*)
+    . = ALIGN(32);  /* Ensure end is also aligned */
+  } >RAM_D2
+
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
   {

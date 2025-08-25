@@ -33,6 +33,11 @@ extern USBD_HandleTypeDef hUsbDeviceHS;
 // 外部函数声明
 extern int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len);
 
+// 性能统计外部变量声明
+extern uint32_t usb_read_count;
+extern uint32_t usb_write_count;
+extern uint32_t usb_single_sector_reads;
+
 /* 系统信息命令 */
 int cmd_sysinfo(int argc, char *argv[])
 {
@@ -471,8 +476,9 @@ int cmd_test_usb_read(int argc, char *argv[])
     SHELL_LOG_SYS_INFO("=== Test USB Storage Read Function ===");
     SHELL_LOG_SYS_INFO("Testing sector %lu", sector_addr);
     
-    // 分配一个与USB使用相同的缓冲区
-    static uint8_t usb_buffer[512] __attribute__((aligned(32)));
+    // 关键修复：使用与USB中间件相同的.dma_buffer区域缓冲区
+    // 确保与USBD_static_malloc使用相同的内存区域和缓存特性
+    static uint8_t usb_buffer[512] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
     
     SHELL_LOG_SYS_INFO("USB buffer address: 0x%08lX", (uint32_t)usb_buffer);
     SHELL_LOG_SYS_INFO("Buffer alignment (& 0x1F): 0x%02X", (uint32_t)usb_buffer & 0x1F);
@@ -558,8 +564,8 @@ int cmd_compare_read(int argc, char *argv[])
     
     SHELL_LOG_SYS_INFO("=== Compare USB vs Direct SD Card Read ===");
     
-    static uint8_t usb_buffer[512] __attribute__((aligned(32)));
-    static uint8_t sd_buffer[512] __attribute__((aligned(32)));
+    static uint8_t usb_buffer[512] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
+    static uint8_t sd_buffer[512] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
     
     SHELL_LOG_SYS_INFO("USB buffer: 0x%08lX, SD buffer: 0x%08lX", 
                       (uint32_t)usb_buffer, (uint32_t)sd_buffer);
@@ -655,6 +661,55 @@ int cmd_meminfo(int argc, char *argv[])
 }
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  meminfo, cmd_meminfo, show memory information);
+
+/* MPU配置检查命令 */
+int cmd_mpu_check(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== MPU Configuration Check ===");
+    
+    // 检查MPU是否启用
+    SHELL_LOG_SYS_INFO("MPU Control Register: 0x%08lX", MPU->CTRL);
+    
+    // 检查关键内存区域的缓存状态
+    uint32_t dma_buffer_addr = 0x30000000;  // .dma_buffer地址
+    
+    // 显示缓存配置
+    SHELL_LOG_SYS_INFO("D-Cache Control Register: 0x%08lX", SCB->CCR);
+    SHELL_LOG_SYS_INFO("Cache Size ID Register: 0x%08lX", SCB->CCSIDR);
+    
+    // 测试内存区域的缓存行为
+    volatile uint32_t *test_ptr = (volatile uint32_t*)dma_buffer_addr;
+    uint32_t original_val = *test_ptr;
+    
+    SHELL_LOG_SYS_INFO("Testing cache behavior at 0x%08lX", dma_buffer_addr);
+    SHELL_LOG_SYS_INFO("Original value: 0x%08lX", original_val);
+    
+    // 写入测试值
+    *test_ptr = 0x12345678;
+    SHELL_LOG_SYS_INFO("After write: 0x%08lX", *test_ptr);
+    
+    // 清理缓存
+    SCB_CleanDCache_by_Addr((uint32_t*)dma_buffer_addr, 32);
+    __DSB();
+    
+    SHELL_LOG_SYS_INFO("After cache clean: 0x%08lX", *test_ptr);
+    
+    // 失效缓存
+    SCB_InvalidateDCache_by_Addr((uint32_t*)dma_buffer_addr, 32);
+    __DSB();
+    
+    SHELL_LOG_SYS_INFO("After cache invalidate: 0x%08lX", *test_ptr);
+    
+    // 恢复原值
+    *test_ptr = original_val;
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 mpu_check, cmd_mpu_check, check MPU configuration for RAM_D2 region);
 
 /* 任务信息命令 */
 int cmd_taskinfo(int argc, char *argv[])
@@ -1066,3 +1121,37 @@ SHELL_EXPORT_VAR(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_VAR_INT),
 static char test_string[] = "Hello STM32H725!";
 SHELL_EXPORT_VAR(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_VAR_STRING), 
                  testStr, test_string, test string variable);
+
+/* USB性能统计命令 */
+int cmd_usb_stats(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    if (argc > 1 && strcmp(argv[1], "reset") == 0) {
+        usb_read_count = 0;
+        usb_write_count = 0;
+        usb_single_sector_reads = 0;
+        SHELL_LOG_USER_INFO("USB statistics reset");
+        return 0;
+    }
+    
+    SHELL_LOG_USER_INFO("=== USB Storage Performance Statistics ===");
+    SHELL_LOG_USER_INFO("Total reads: %lu", usb_read_count);
+    SHELL_LOG_USER_INFO("Total writes: %lu", usb_write_count);
+    SHELL_LOG_USER_INFO("Single-sector reads: %lu (%.1f%%)", 
+                       usb_single_sector_reads,
+                       usb_read_count > 0 ? (100.0f * usb_single_sector_reads / usb_read_count) : 0.0f);
+    SHELL_LOG_USER_INFO("Multi-sector reads: %lu", 
+                       usb_read_count - usb_single_sector_reads);
+    
+    if (usb_read_count > 0) {
+        SHELL_LOG_USER_INFO("Average efficiency: %.1f%% multi-sector", 
+                           100.0f * (usb_read_count - usb_single_sector_reads) / usb_read_count);
+    }
+    
+    SHELL_LOG_USER_INFO("Use 'usb_stats reset' to clear statistics");
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 usb_stats, cmd_usb_stats, show USB storage performance statistics);

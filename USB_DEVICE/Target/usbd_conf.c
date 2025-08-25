@@ -375,11 +375,10 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   hpcd_USB_OTG_HS.Init.dev_endpoints = 8;
   hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_FULL;
   /*
-   * 根本原因修复: 禁用DMA。
-   * 根据官方参考例程，启用DMA可能导致因内存对齐问题而在枚举阶段失败。
-   * 禁用DMA，改由CPU处理数据传输，可确保稳定性。
+   * 正面解决DMA问题：重新启用DMA并使用正确的缓存管理
+   * 关键是确保缓存一致性操作的正确实施
    */
-  hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.dma_enable = ENABLE;
   hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY; /* Correct for this hardware */
   hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE; /* Keep disabled for RTOS compatibility */
@@ -675,7 +674,8 @@ USBD_StatusTypeDef USBD_LL_SetTestMode(USBD_HandleTypeDef *pdev, uint8_t testmod
 void *USBD_static_malloc(uint32_t size)
 {
   UNUSED(size);
-  static uint32_t mem[(sizeof(USBD_MSC_BOT_HandleTypeDef)/4)+1] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));/* On 32-bit boundary */
+  /* 性能优化: DMA兼容的内存分配，确保32字节对齐并位于DMA可访问区域 */
+  static uint32_t mem[(sizeof(USBD_MSC_BOT_HandleTypeDef)/4)+16] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));/* On 32-byte boundary for DMA */
   return mem;
 }
 

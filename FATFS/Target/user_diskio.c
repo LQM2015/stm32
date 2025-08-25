@@ -133,26 +133,34 @@ DRESULT USER_read (
 
   // INFO_PRINTF("USER_read: sector=%lu, count=%u", sector, count);
   
-  // 临时禁用缓存操作来测试
-  // /*
-  //  * 缓存一致性修复: 在DMA操作前清理缓存
-  //  * 确保缓存地址32字节对齐 - STM32H7缓存线大小为32字节
-  //  */
-  // uint32_t aligned_addr = (uint32_t)buff & ~0x1F;  // 32字节对齐
-  // uint32_t aligned_size = ((count * 512) + 31) & ~0x1F;  // 向上对齐到32字节边界
-  // SCB_CleanInvalidateDCache_by_Addr((uint32_t*)aligned_addr, aligned_size);
+  /*
+   * SDMMC DMA缓存一致性的正确实现
+   * 关键：使用内存屏障确保操作顺序，避免乱序执行
+   */
+  uint32_t cache_size = count * 512;
   
+  /* 1. DMA前：清理并失效缓存，为DMA写入做准备 */
+  SCB_CleanInvalidateDCache_by_Addr((uint32_t*)buff, cache_size);
+  
+  /* 2. 内存屏障：确保缓存操作完成 */
+  __DSB();
+  __ISB();
+  
+  /* 3. 执行SDMMC DMA读取 */
   hal_res = HAL_SD_ReadBlocks(&hsd1, (uint8_t *)buff, sector, count, HAL_MAX_DELAY);
+  
   if (hal_res == HAL_OK)
   {
-    /*
-     * 根本原因修复: 缓存一致性问题。
-     * SD卡数据由DMA直接写入内存，CPU的D-Cache可能含有旧的、无效的数据。
-     * 在DMA读操作完成后，必须使对应内存区域的D-Cache失效，
-     * 强制CPU下次访问时从内存重新加载最新数据。
-     */
-    // 临时禁用缓存失效操作
-    // SCB_InvalidateDCache_by_Addr((uint32_t*)aligned_addr, aligned_size);
+    /* 4. 内存屏障：确保DMA操作完成 */
+    __DSB();
+    
+    /* 5. DMA后：失效缓存，确保CPU看到DMA写入的最新数据 */
+    SCB_InvalidateDCache_by_Addr((uint32_t*)buff, cache_size);
+    
+    /* 6. 内存屏障：确保缓存失效完成 */
+    __DSB();
+    __ISB();
+    
     res = RES_OK;
   }
   else
