@@ -17,9 +17,16 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os.h"
+#include "ff.h"
+#include "usbd_core.h"
+#include "usb_device.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+// 外部变量声明
+extern SD_HandleTypeDef hsd1;
+extern USBD_HandleTypeDef hUsbDeviceHS;
 
 /* 系统信息命令 */
 int cmd_sysinfo(int argc, char *argv[])
@@ -50,6 +57,188 @@ int cmd_sysinfo(int argc, char *argv[])
 }
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  sysinfo, cmd_sysinfo, show system information);
+
+/* SD卡诊断命令 */
+int cmd_sddiag(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== SD Card Diagnostic ===");
+    
+    // 检查SD卡状态
+    HAL_SD_CardStateTypeDef cardState = HAL_SD_GetCardState(&hsd1);
+    SHELL_LOG_SYS_INFO("SD Card State: %d", cardState);
+    
+    if (cardState != HAL_SD_CARD_TRANSFER) {
+        SHELL_LOG_SYS_ERROR("SD Card not in transfer state!");
+        return -1;
+    }
+    
+    // 获取SD卡信息
+    HAL_SD_CardInfoTypeDef cardInfo;
+    HAL_StatusTypeDef status = HAL_SD_GetCardInfo(&hsd1, &cardInfo);
+    if (status == HAL_OK) {
+        SHELL_LOG_SYS_INFO("Card Type: %lu", cardInfo.CardType);
+        SHELL_LOG_SYS_INFO("Card Version: %lu", cardInfo.CardVersion);
+        SHELL_LOG_SYS_INFO("Block Number: %lu", cardInfo.BlockNbr);
+        SHELL_LOG_SYS_INFO("Block Size: %lu", cardInfo.BlockSize);
+        SHELL_LOG_SYS_INFO("Logical Block Number: %lu", cardInfo.LogBlockNbr);
+        SHELL_LOG_SYS_INFO("Logical Block Size: %lu", cardInfo.LogBlockSize);
+        
+        uint64_t totalSize = (uint64_t)cardInfo.LogBlockNbr * cardInfo.LogBlockSize;
+        SHELL_LOG_SYS_INFO("Total Capacity: %llu bytes", totalSize);
+    } else {
+        SHELL_LOG_SYS_ERROR("Failed to get card info: %d", status);
+        return -1;
+    }
+    
+    // 读取并显示MBR（第0扇区）
+    static uint8_t sector_buffer[512];
+    status = HAL_SD_ReadBlocks(&hsd1, sector_buffer, 0, 1, 5000);
+    if (status == HAL_OK) {
+        SHELL_LOG_SYS_INFO("=== MBR Content (first 32 bytes) ===");
+        for (int i = 0; i < 32; i += 16) {
+            SHELL_LOG_SYS_INFO("%04X: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                               i,
+                               sector_buffer[i+0], sector_buffer[i+1], sector_buffer[i+2], sector_buffer[i+3],
+                               sector_buffer[i+4], sector_buffer[i+5], sector_buffer[i+6], sector_buffer[i+7],
+                               sector_buffer[i+8], sector_buffer[i+9], sector_buffer[i+10], sector_buffer[i+11],
+                               sector_buffer[i+12], sector_buffer[i+13], sector_buffer[i+14], sector_buffer[i+15]);
+        }
+        
+        // 检查分区表签名
+        if (sector_buffer[510] == 0x55 && sector_buffer[511] == 0xAA) {
+            SHELL_LOG_SYS_INFO("Valid MBR signature found (0x55AA)");
+        } else {
+            SHELL_LOG_SYS_WARNING("No valid MBR signature found! Expected 0x55AA, got 0x%02X%02X", 
+                                  sector_buffer[511], sector_buffer[510]);
+        }
+        
+        // 检查FAT文件系统签名
+        if (strncmp((char*)&sector_buffer[54], "FAT", 3) == 0) {
+            SHELL_LOG_SYS_INFO("FAT filesystem detected in boot sector");
+        } else if (strncmp((char*)&sector_buffer[82], "FAT32", 5) == 0) {
+            SHELL_LOG_SYS_INFO("FAT32 filesystem detected in boot sector");
+        } else {
+            SHELL_LOG_SYS_WARNING("No FAT filesystem signature found in boot sector");
+        }
+        
+    } else {
+        SHELL_LOG_SYS_ERROR("Failed to read MBR: %d", status);
+        return -1;
+    }
+    
+    SHELL_LOG_SYS_INFO("SD Card diagnostic completed");
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 sddiag, cmd_sddiag, diagnose SD card and filesystem);
+
+/* USB重新初始化命令 */
+int cmd_usb_reinit(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== USB Re-initialization ===");
+    
+    // 断开USB连接
+    SHELL_LOG_SYS_INFO("Disconnecting USB...");
+    USBD_DeInit(&hUsbDeviceHS);
+    
+    // 等待一段时间
+    osDelay(1000);
+    
+    // 重新初始化USB
+    SHELL_LOG_SYS_INFO("Re-initializing USB...");
+    extern void MX_USB_DEVICE_Init(void);
+    MX_USB_DEVICE_Init();
+    
+    SHELL_LOG_SYS_INFO("USB re-initialization completed");
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 usb_reinit, cmd_usb_reinit, reinitialize USB device);
+
+/* SD卡格式化命令 - 简化版本 */
+int cmd_format_sd(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== SD Card Format Instructions ===");
+    SHELL_LOG_SYS_WARNING("SD card appears to be uninitialized (MBR is empty)");
+    SHELL_LOG_SYS_INFO("Please follow these steps to format the SD card:");
+    SHELL_LOG_SYS_INFO("1. Remove SD card from STM32 device");
+    SHELL_LOG_SYS_INFO("2. Insert SD card into PC card reader");
+    SHELL_LOG_SYS_INFO("3. Open Windows Disk Management or use format command:");
+    SHELL_LOG_SYS_INFO("   - Format as FAT32");
+    SHELL_LOG_SYS_INFO("   - Allocation unit size: Default");
+    SHELL_LOG_SYS_INFO("   - Quick format: Unchecked (full format recommended)");
+    SHELL_LOG_SYS_INFO("4. Safely eject SD card from PC");
+    SHELL_LOG_SYS_INFO("5. Insert SD card back into STM32 device");
+    SHELL_LOG_SYS_INFO("6. Reset STM32 device");
+    SHELL_LOG_SYS_INFO("7. Run 'sddiag' command to verify");
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 format_sd, cmd_format_sd, format SD card with FAT filesystem);
+
+/* USB状态检查命令 */
+int cmd_usb_status(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== USB Status Check ===");
+    SHELL_LOG_SYS_INFO("USB Device State: %d", hUsbDeviceHS.dev_state);
+    SHELL_LOG_SYS_INFO("USB Device Speed: %d", hUsbDeviceHS.dev_config);
+    SHELL_LOG_SYS_INFO("USB Device Address: %d", hUsbDeviceHS.dev_address);
+    
+    // 检查SD卡状态以确保存储后端正常
+    HAL_SD_CardStateTypeDef cardState = HAL_SD_GetCardState(&hsd1);
+    SHELL_LOG_SYS_INFO("SD Card Backend State: %d", cardState);
+    
+    if (cardState == HAL_SD_CARD_TRANSFER) {
+        SHELL_LOG_SYS_INFO("Storage backend is ready");
+        
+        // 检查SD卡是否有有效的文件系统
+        static uint8_t sector_buffer[512];
+        HAL_StatusTypeDef status = HAL_SD_ReadBlocks(&hsd1, sector_buffer, 0, 1, 5000);
+        if (status == HAL_OK) {
+            if (sector_buffer[510] == 0x55 && sector_buffer[511] == 0xAA) {
+                // 检查是否有分区表
+                uint8_t hasValidPartition = 0;
+                for (int i = 0; i < 4; i++) {
+                    uint8_t *partition = &sector_buffer[446 + i * 16];
+                    if (partition[4] != 0x00) { // 分区类型不为0
+                        hasValidPartition = 1;
+                        SHELL_LOG_SYS_INFO("Found partition %d: Type=0x%02X", i, partition[4]);
+                        break;
+                    }
+                }
+                
+                if (!hasValidPartition) {
+                    SHELL_LOG_SYS_WARNING("No valid partitions found - SD card needs formatting");
+                } else {
+                    SHELL_LOG_SYS_INFO("SD card appears to have valid partition(s)");
+                }
+            } else {
+                SHELL_LOG_SYS_WARNING("Invalid MBR signature - SD card needs formatting");
+            }
+        } else {
+            SHELL_LOG_SYS_ERROR("Failed to read SD card MBR");
+        }
+    } else {
+        SHELL_LOG_SYS_ERROR("Storage backend not ready!");
+    }
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 usb_status, cmd_usb_status, check USB device and storage status);
 
 /* 内存信息命令 */
 int cmd_meminfo(int argc, char *argv[])
