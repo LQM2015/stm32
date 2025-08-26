@@ -174,6 +174,16 @@ int main(void)
   // 测试日志系统
   SHELL_LOG_SYS_INFO("System initialization completed, starting FreeRTOS scheduler");
   
+  // 切换到最大主频 (550MHz) 以获得最佳性能
+  SHELL_LOG_SYS_INFO("Switching to maximum system clock frequency (550MHz)...");
+  if (SwitchSystemClock(CLOCK_PROFILE_550M) == HAL_OK) {
+    uint32_t actual_freq = GetCurrentSystemClock();
+    SHELL_LOG_SYS_INFO("Successfully switched to maximum frequency: %lu Hz (%.1f MHz)", 
+                        actual_freq, (float)actual_freq / 1000000.0f);
+  } else {
+    SHELL_LOG_SYS_ERROR("Failed to switch to maximum frequency, using default frequency");
+  }
+  
   // UART接收中断将在shell任务中启动，这里不需要重复启动
   
   // 测试不同级别的调试输出 - 已禁用
