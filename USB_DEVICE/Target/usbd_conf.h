@@ -108,27 +108,23 @@
 #define USBD_Delay          HAL_Delay
 
 /* DEBUG macros */
+/* DEBUG macros */
+#include "shell_log.h"
 
 #if (USBD_DEBUG_LEVEL > 0)
-#define USBD_UsrLog(...)    printf(__VA_ARGS__);\
-                            printf("\n");
+#define USBD_UsrLog(...)    SHELL_LOG_USER_INFO(__VA_ARGS__)
 #else
 #define USBD_UsrLog(...)
 #endif /* (USBD_DEBUG_LEVEL > 0U) */
 
 #if (USBD_DEBUG_LEVEL > 1)
-
-#define USBD_ErrLog(...)    printf("ERROR: ");\
-                            printf(__VA_ARGS__);\
-                            printf("\n");
+#define USBD_ErrLog(...)    SHELL_LOG_USER_ERROR(__VA_ARGS__)
 #else
 #define USBD_ErrLog(...)
 #endif /* (USBD_DEBUG_LEVEL > 1U) */
 
 #if (USBD_DEBUG_LEVEL > 2)
-#define USBD_DbgLog(...)    printf("DEBUG : ");\
-                            printf(__VA_ARGS__);\
-                            printf("\n");
+#define USBD_DbgLog(...)    SHELL_LOG_USER_DEBUG(__VA_ARGS__)
 #else
 #define USBD_DbgLog(...)
 #endif /* (USBD_DEBUG_LEVEL > 2U) */

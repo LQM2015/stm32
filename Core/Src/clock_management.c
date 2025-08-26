@@ -39,7 +39,7 @@ static uint32_t CheckPeripheralCompatibility(uint32_t target_freq)
     // UART3 needs minimum 1MHz for 115200 baud rate
     if (pclk1 < 1000000)
     {
-        printf("[ERROR] UART3 incompatible: APB1 clock %lu Hz too low for 115200 baud\r\n", pclk1);
+        SHELL_LOG_CLK_ERROR("UART3 incompatible: APB1 clock %lu Hz too low for 115200 baud", pclk1);
         error_code |= 0x01;
     }
     
@@ -47,7 +47,7 @@ static uint32_t CheckPeripheralCompatibility(uint32_t target_freq)
     // SD card needs minimum 400kHz for initialization, 25MHz for high speed
     if (hclk < 400000)
     {
-        printf("[ERROR] SD Card incompatible: AHB clock %lu Hz too low\r\n", hclk);
+        SHELL_LOG_CLK_ERROR("SD Card incompatible: AHB clock %lu Hz too low", hclk);
         error_code |= 0x02;
     }
     
@@ -55,7 +55,7 @@ static uint32_t CheckPeripheralCompatibility(uint32_t target_freq)
     // FreeRTOS needs minimum 1kHz tick rate
     if (target_freq < 1000)
     {
-        printf("[ERROR] FreeRTOS incompatible: System clock %lu Hz too low for 1kHz tick\r\n", target_freq);
+        SHELL_LOG_CLK_ERROR("FreeRTOS incompatible: System clock %lu Hz too low for 1kHz tick", target_freq);
         error_code |= 0x04;
     }
     
@@ -63,7 +63,7 @@ static uint32_t CheckPeripheralCompatibility(uint32_t target_freq)
     // Very low frequencies might have Flash access issues
     if (target_freq < 32000 && target_freq != 32768) // Allow 32kHz LSI
     {
-        printf("[ERROR] Flash access incompatible: System clock %lu Hz too low\r\n", target_freq);
+        SHELL_LOG_CLK_ERROR("Flash access incompatible: System clock %lu Hz too low", target_freq);
         error_code |= 0x08;
     }
     
@@ -76,7 +76,7 @@ static uint32_t CheckPeripheralCompatibility(uint32_t target_freq)
   */
 void TestAllClockProfiles(void)
 {
-    printf("\r\n=== Random Clock Profile Test ===\r\n");
+    SHELL_LOG_CLK_INFO("=== Random Clock Profile Test ===");
     
     ClockProfile_t profiles[] = {
         CLOCK_PROFILE_32K, CLOCK_PROFILE_24M, CLOCK_PROFILE_48M,
@@ -98,7 +98,7 @@ void TestAllClockProfiles(void)
         seed = (seed * 1103515245 + 12345) & 0x7fffffff;
         int random_index = seed % 9;
         
-        printf("\r\n--- Random Test %d: Testing %s Profile ---\r\n", 
+        SHELL_LOG_CLK_INFO("--- Random Test %d: Testing %s Profile ---", 
                test_count + 1, profile_names[random_index]);
         
         HAL_StatusTypeDef result = SwitchSystemClock(profiles[random_index]);
@@ -106,22 +106,22 @@ void TestAllClockProfiles(void)
         {
             // 读取当前实际主频
             uint32_t actual_freq = HAL_RCC_GetSysClockFreq();
-            printf("[SUCCESS] %s profile works correctly\r\n", profile_names[random_index]);
-            printf("[INFO] Actual system clock: %lu Hz (%.2f MHz)\r\n", 
+            SHELL_LOG_CLK_INFO("SUCCESS: %s profile works correctly", profile_names[random_index]);
+            SHELL_LOG_CLK_INFO("Actual system clock: %lu Hz (%.2f MHz)", 
                    actual_freq, (float)actual_freq / 1000000.0f);
             
             // 等待5秒 - 现在SysTick已经重新配置，osDelay准确
-            printf("[INFO] Waiting 5 seconds before next test...\r\n");
+            SHELL_LOG_CLK_INFO("Waiting 5 seconds before next test...");
             osDelay(5000);
         }
         else
         {
-            printf("[FAILED] %s profile failed\r\n", profile_names[random_index]);
+            SHELL_LOG_CLK_ERROR("%s profile failed", profile_names[random_index]);
             osDelay(1000); // 失败时等待1秒
         }
     }
     
-    printf("\r\n=== Random Test Complete ===\r\n");
+    SHELL_LOG_CLK_INFO("=== Random Test Complete ===");
 }
 
 /**
@@ -165,26 +165,26 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
     // Get target frequency
     target_freq = GetProfileFrequency(profile);
     
-    printf("[INFO] Requesting clock switch to %lu Hz (Profile %d)\r\n", target_freq, profile);
+    SHELL_LOG_CLK_INFO("Requesting clock switch to %lu Hz (Profile %d)", target_freq, profile);
     
     // Check peripheral compatibility
     uint32_t compat_error = CheckPeripheralCompatibility(target_freq);
     if (compat_error != 0)
     {
-        printf("[ERROR] Peripheral compatibility check failed (0x%02lX)\r\n", compat_error);
+        SHELL_LOG_CLK_ERROR("Peripheral compatibility check failed (0x%02lX)", compat_error);
         
         // Find compatible alternative
         ClockProfile_t compatible_profile = FindCompatibleProfile(profile);
         if (compatible_profile == profile)
         {
-            printf("[ERROR] No compatible clock profile found\r\n");
+            SHELL_LOG_CLK_ERROR("No compatible clock profile found");
             return HAL_ERROR;
         }
         
         // Use compatible profile instead
         profile = compatible_profile;
         target_freq = GetProfileFrequency(profile);
-        printf("[INFO] Using compatible profile %d (%lu Hz)\r\n", profile, target_freq);
+        SHELL_LOG_CLK_INFO("Using compatible profile %d (%lu Hz)", profile, target_freq);
     }
 
     // --- Determine target settings based on profile ---
@@ -273,7 +273,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
             break;
     }
 
-    printf("[INFO] Starting clock switch to %lu Hz...\r\n", target_freq);
+    SHELL_LOG_CLK_INFO("Starting clock switch to %lu Hz...", target_freq);
 
     /* Use global interrupt disable for maximum safety during clock switching. */
     __disable_irq();
@@ -308,7 +308,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
             if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
             {
                 __enable_irq();
-                printf("[ERROR] LSI configuration failed\r\n");
+                SHELL_LOG_CLK_ERROR("LSI configuration failed");
                 return HAL_ERROR;
             }
             
@@ -318,7 +318,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
             if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, flash_latency) != HAL_OK)
             {
                 __enable_irq();
-                printf("[ERROR] LSI clock switch failed\r\n");
+                SHELL_LOG_CLK_ERROR("LSI clock switch failed");
                 return HAL_ERROR;
             }
         }
@@ -332,7 +332,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
         if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
         {
             __enable_irq();
-            printf("[ERROR] HSI temporary switch failed\r\n");
+            SHELL_LOG_CLK_ERROR("HSI temporary switch failed");
             return HAL_ERROR;
         }
 
@@ -353,7 +353,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
         if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
         {
             __enable_irq();
-            printf("[ERROR] PLL configuration failed\r\n");
+            SHELL_LOG_CLK_ERROR("PLL configuration failed");
             return HAL_ERROR;
         }
         
@@ -366,7 +366,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
         if (timeout == 0)
         {
             __enable_irq();
-            printf("[ERROR] PLL lock timeout\r\n");
+            SHELL_LOG_CLK_ERROR("PLL lock timeout");
             return HAL_ERROR;
         }
         
@@ -386,7 +386,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
         if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, flash_latency) != HAL_OK)
         {
             __enable_irq();
-            printf("[ERROR] PLL clock switch failed\r\n");
+            SHELL_LOG_CLK_ERROR("PLL clock switch failed");
             return HAL_ERROR;
         }
     }
@@ -426,7 +426,7 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
     // 确保HAL时基也正确更新
     HAL_InitTick(TICK_INT_PRIORITY);
     
-    printf("[INFO] SysTick reconfigured for %lu Hz system clock (1ms tick)\r\n", new_sysclk);
+    SHELL_LOG_CLK_INFO("SysTick reconfigured for %lu Hz system clock (1ms tick)", new_sysclk);
     
     // 添加延时确保SysTick稳定后再重新初始化UART
     DelayNoCycles(100000); // 约1ms延时
@@ -434,12 +434,12 @@ HAL_StatusTypeDef SwitchSystemClock(ClockProfile_t profile)
     // 重新初始化UART（因为时钟变化会影响波特率）
     if (HAL_UART_Init(&huart3) != HAL_OK) 
     { 
-        printf("[ERROR] UART reinit failed\r\n");
+        SHELL_LOG_CLK_ERROR("UART reinit failed");
         return HAL_ERROR;
     }
 
     uint32_t actual_freq = HAL_RCC_GetSysClockFreq();
-    printf("[SUCCESS] Clock switched successfully to %lu Hz\r\n", actual_freq);
+    SHELL_LOG_CLK_INFO("Clock switched successfully to %lu Hz", actual_freq);
     
     return HAL_OK;
 }
