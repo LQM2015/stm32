@@ -151,21 +151,32 @@ int cmd_usb_reinit(int argc, char *argv[])
     Shell *shell = shellGetCurrent();
     if (!shell) return -1;
     
-    SHELL_LOG_SYS_INFO("=== USB Re-initialization ===");
+    SHELL_LOG_SYS_INFO("=== Enhanced USB Re-initialization ===");
     
-    // 断开USB连接
-    SHELL_LOG_SYS_INFO("Disconnecting USB...");
+    // 强制断开USB连接
+    SHELL_LOG_SYS_INFO("1. Forcing USB disconnect...");
     USBD_DeInit(&hUsbDeviceHS);
     
-    // 等待一段时间
-    osDelay(1000);
+    // 停用USB控制器
+    SHELL_LOG_SYS_INFO("2. Disabling USB controller...");
+    extern PCD_HandleTypeDef hpcd_USB_OTG_HS;
+    HAL_PCD_DeInit(&hpcd_USB_OTG_HS);
     
-    // 重新初始化USB
-    SHELL_LOG_SYS_INFO("Re-initializing USB...");
+    // 等待更长时间确保主机检测到断开
+    SHELL_LOG_SYS_INFO("3. Waiting for host detection...");
+    osDelay(2000);  // 增加到2秒
+    
+    // 重新初始化USB设备
+    SHELL_LOG_SYS_INFO("4. Re-initializing USB device...");
     extern void MX_USB_DEVICE_Init(void);
     MX_USB_DEVICE_Init();
     
-    SHELL_LOG_SYS_INFO("USB re-initialization completed");
+    // 等待枚举完成
+    SHELL_LOG_SYS_INFO("5. Waiting for enumeration...");
+    osDelay(1000);
+    
+    SHELL_LOG_SYS_INFO("Enhanced USB re-initialization completed");
+    SHELL_LOG_SYS_INFO("Please check device state with 'usb_debug' command");
     return 0;
 }
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
@@ -711,6 +722,74 @@ int cmd_mpu_check(int argc, char *argv[])
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  mpu_check, cmd_mpu_check, check MPU configuration for RAM_D2 region);
 
+/* USB深度调试命令 */
+int cmd_usb_debug(int argc, char *argv[])
+{
+    Shell *shell = shellGetCurrent();
+    if (!shell) return -1;
+    
+    SHELL_LOG_SYS_INFO("=== USB Deep Debug Analysis ===");
+    
+    // 包含必要的头文件引用
+    extern USBD_HandleTypeDef hUsbDeviceHS;
+    
+    SHELL_LOG_SYS_INFO("1. USB Device Handle Status:");
+    SHELL_LOG_SYS_INFO("   Device State: %d", hUsbDeviceHS.dev_state);
+    SHELL_LOG_SYS_INFO("   Device Speed: %d", hUsbDeviceHS.dev_config);
+    SHELL_LOG_SYS_INFO("   Device Address: %d", hUsbDeviceHS.dev_address);
+    SHELL_LOG_SYS_INFO("   Device Config: %d", hUsbDeviceHS.dev_config);
+    
+    SHELL_LOG_SYS_INFO("2. USB Core Status:");
+    if (hUsbDeviceHS.pData != NULL) {
+        SHELL_LOG_SYS_INFO("   Class Data: Valid (0x%08lX)", (uint32_t)hUsbDeviceHS.pData);
+    } else {
+        SHELL_LOG_SYS_ERROR("   Class Data: NULL - This indicates a problem!");
+    }
+    
+    SHELL_LOG_SYS_INFO("3. USB Class Information:");
+    if (hUsbDeviceHS.pClass[0] != NULL) {
+        SHELL_LOG_SYS_INFO("   Class Handle: Valid (0x%08lX)", (uint32_t)hUsbDeviceHS.pClass[0]);
+    } else {
+        SHELL_LOG_SYS_ERROR("   Class Handle: NULL - This indicates a problem!");
+    }
+    
+    SHELL_LOG_SYS_INFO("4. USB Endpoint Status:");
+    for (int i = 0; i < 16; i++) {
+        if (hUsbDeviceHS.ep_in[i].is_used || hUsbDeviceHS.ep_out[i].is_used) {
+            SHELL_LOG_SYS_INFO("   EP%d: IN=%s OUT=%s", i,
+                hUsbDeviceHS.ep_in[i].is_used ? "Used" : "Free",
+                hUsbDeviceHS.ep_out[i].is_used ? "Used" : "Free");
+        }
+    }
+    
+    SHELL_LOG_SYS_INFO("5. USB Device State Analysis:");
+    switch(hUsbDeviceHS.dev_state) {
+        case USBD_STATE_DEFAULT:
+            SHELL_LOG_SYS_WARNING("   Device in DEFAULT state - not fully enumerated");
+            SHELL_LOG_SYS_INFO("   Possible causes:");
+            SHELL_LOG_SYS_INFO("   - Host hasn't set configuration");
+            SHELL_LOG_SYS_INFO("   - USB descriptors issue");
+            SHELL_LOG_SYS_INFO("   - USB class driver problem");
+            break;
+        case USBD_STATE_ADDRESSED:
+            SHELL_LOG_SYS_INFO("   Device ADDRESSED - partially enumerated");
+            break;
+        case USBD_STATE_CONFIGURED:
+            SHELL_LOG_SYS_INFO("   Device CONFIGURED - fully operational");
+            break;
+        case USBD_STATE_SUSPENDED:
+            SHELL_LOG_SYS_WARNING("   Device SUSPENDED");
+            break;
+        default:
+            SHELL_LOG_SYS_ERROR("   Unknown device state: %d", hUsbDeviceHS.dev_state);
+            break;
+    }
+    
+    return 0;
+}
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 usb_debug, cmd_usb_debug, detailed USB device debugging information);
+
 /* 任务信息命令 */
 int cmd_taskinfo(int argc, char *argv[])
 {
@@ -1139,15 +1218,21 @@ int cmd_usb_stats(int argc, char *argv[])
     SHELL_LOG_USER_INFO("=== USB Storage Performance Statistics ===");
     SHELL_LOG_USER_INFO("Total reads: %lu", usb_read_count);
     SHELL_LOG_USER_INFO("Total writes: %lu", usb_write_count);
-    SHELL_LOG_USER_INFO("Single-sector reads: %lu (%.1f%%)", 
-                       usb_single_sector_reads,
-                       usb_read_count > 0 ? (100.0f * usb_single_sector_reads / usb_read_count) : 0.0f);
+    
+    // Calculate percentage using integer arithmetic to avoid float issues
+    uint32_t percentage = 0;
+    if (usb_read_count > 0) {
+        percentage = (usb_single_sector_reads * 100) / usb_read_count;
+    }
+    
+    SHELL_LOG_USER_INFO("Single-sector reads: %lu (%lu%%)", 
+                       usb_single_sector_reads, percentage);
     SHELL_LOG_USER_INFO("Multi-sector reads: %lu", 
                        usb_read_count - usb_single_sector_reads);
     
     if (usb_read_count > 0) {
-        SHELL_LOG_USER_INFO("Average efficiency: %.1f%% multi-sector", 
-                           100.0f * (usb_read_count - usb_single_sector_reads) / usb_read_count);
+        uint32_t multi_percentage = ((usb_read_count - usb_single_sector_reads) * 100) / usb_read_count;
+        SHELL_LOG_USER_INFO("Average efficiency: %lu%% multi-sector", multi_percentage);
     }
     
     SHELL_LOG_USER_INFO("Use 'usb_stats reset' to clear statistics");
