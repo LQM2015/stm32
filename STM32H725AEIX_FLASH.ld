@@ -47,7 +47,7 @@ MEMORY
   DTCMRAM (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
   FLASH    (rx)    : ORIGIN = 0x08000000,   LENGTH = 512K
   RAM_D1  (xrw)    : ORIGIN = 0x24000000,   LENGTH = 320K
-  RAM_D2  (xrw)    : ORIGIN = 0x30000000,   LENGTH = 32K
+  RAM_D2  (xrw)    : ORIGIN = 0x30000000,   LENGTH = 48K    /* 增加到48K以容纳不可缓存区域 */
   RAM_D3  (xrw)    : ORIGIN = 0x38000000,   LENGTH = 16K
 }
 
@@ -162,12 +162,21 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM_D1
 
-  /* DMA buffer section for USB and other DMA operations */
+  /* DMA buffer section for USB middleware (cacheable) */
   .dma_buffer (NOLOAD) :
   {
     . = ALIGN(32);  /* Align to cache line boundary */
     *(.dma_buffer)
     *(.dma_buffer*)
+    . = ALIGN(32);  /* Ensure end is also aligned */
+  } >RAM_D2
+
+  /* Non-cacheable DMA data buffers section - force to specific address */
+  .dma_data_buffer 0x30004000 (NOLOAD) :
+  {
+    . = ALIGN(32);  /* Align to cache line boundary */
+    *(.dma_data_buffer)
+    *(.dma_data_buffer*)
     . = ALIGN(32);  /* Ensure end is also aligned */
   } >RAM_D2
 

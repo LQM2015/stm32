@@ -476,9 +476,9 @@ int cmd_test_usb_read(int argc, char *argv[])
     SHELL_LOG_SYS_INFO("=== Test USB Storage Read Function ===");
     SHELL_LOG_SYS_INFO("Testing sector %lu", sector_addr);
     
-    // 关键修复：使用与USB中间件相同的.dma_buffer区域缓冲区
-    // 确保与USBD_static_malloc使用相同的内存区域和缓存特性
-    static uint8_t usb_buffer[512] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
+    // 关键修复：使用不可缓存的数据缓冲区段，避免缓存一致性问题
+    // .dma_data_buffer段映射到RAM_D2不可缓存区域
+    static uint8_t usb_buffer[512] __attribute__((section(".dma_data_buffer"))) __attribute__((aligned(32)));
     
     SHELL_LOG_SYS_INFO("USB buffer address: 0x%08lX", (uint32_t)usb_buffer);
     SHELL_LOG_SYS_INFO("Buffer alignment (& 0x1F): 0x%02X", (uint32_t)usb_buffer & 0x1F);
@@ -564,8 +564,8 @@ int cmd_compare_read(int argc, char *argv[])
     
     SHELL_LOG_SYS_INFO("=== Compare USB vs Direct SD Card Read ===");
     
-    static uint8_t usb_buffer[512] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
-    static uint8_t sd_buffer[512] __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
+    static uint8_t usb_buffer[512] __attribute__((section(".dma_data_buffer"))) __attribute__((aligned(32)));
+    static uint8_t sd_buffer[512] __attribute__((section(".dma_data_buffer"))) __attribute__((aligned(32)));
     
     SHELL_LOG_SYS_INFO("USB buffer: 0x%08lX, SD buffer: 0x%08lX", 
                       (uint32_t)usb_buffer, (uint32_t)sd_buffer);

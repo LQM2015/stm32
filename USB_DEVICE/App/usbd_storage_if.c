@@ -293,7 +293,10 @@ int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t bl
   }
 
   /*
-   * 修复的缓存管理：RAM_D2现在配置为不可缓存，无需缓存操作
+   * 混合缓存管理策略：
+   * - .dma_buffer段(可缓存)：USB中间件结构体
+   * - .dma_data_buffer段(不可缓存)：USB数据传输缓冲区
+   * 检查缓冲区地址判断需要的缓存策略
    */
   SHELL_LOG_SYS_INFO("USB Read: LUN=%d, buf=0x%08lX, addr=%lu, len=%d", 
                     lun, (uint32_t)buf, blk_addr, blk_len);
@@ -302,12 +305,45 @@ int8_t STORAGE_Read_HS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t bl
   SHELL_LOG_SYS_INFO("Buffer before read: [0-3] = %02X %02X %02X %02X", 
                     buf[0], buf[1], buf[2], buf[3]);
   
-  SHELL_LOG_SYS_INFO("RAM_D2 region is non-cacheable, no cache operations needed");
+  uint32_t buf_addr = (uint32_t)buf;
   
-  /* 执行读取 - 由于RAM_D2不可缓存，DMA直接写入内存，CPU立即可见 */
+  // 检查缓冲区是否在不可缓存区域 (0x30004000 及以上)
+  if (buf_addr >= 0x30004000) {
+    SHELL_LOG_SYS_INFO("Buffer in non-cacheable region, no cache operations needed");
+  } else {
+    SHELL_LOG_SYS_INFO("Buffer in cacheable region, applying cache management");
+    uint32_t data_size = blk_len * 512;
+    
+    // 向下对齐起始地址到32字节边界
+    uint32_t aligned_start = buf_addr & ~0x1F;
+    // 向上对齐结束地址到32字节边界
+    uint32_t aligned_end = (buf_addr + data_size + 31) & ~0x1F;
+    uint32_t cache_size = aligned_end - aligned_start;
+    
+    SHELL_LOG_SYS_INFO("Cache: buf=0x%08lX, size=%lu, aligned=0x%08lX-0x%08lX (%lu bytes)", 
+                      buf_addr, data_size, aligned_start, aligned_end, cache_size);
+    
+    /* DMA前：清理并失效对齐区域的缓存 */
+    SCB_CleanInvalidateDCache_by_Addr((uint32_t*)aligned_start, cache_size);
+    __DSB();
+  }
+  
+  /* 执行读取 */
   SHELL_LOG_SYS_INFO("About to call disk_read...");
   res = disk_read(lun, buf, blk_addr, blk_len);
   SHELL_LOG_SYS_INFO("disk_read returned: %d", res);
+  
+  if (buf_addr < 0x30004000) {
+    /* DMA后：失效缓存让CPU看到新数据 */
+    uint32_t data_size = blk_len * 512;
+    uint32_t aligned_start = buf_addr & ~0x1F;
+    uint32_t aligned_end = (buf_addr + data_size + 31) & ~0x1F;
+    uint32_t cache_size = aligned_end - aligned_start;
+    
+    __DSB();
+    SCB_InvalidateDCache_by_Addr((uint32_t*)aligned_start, cache_size);
+    __DSB();
+  }
   
   // 在读取后显示缓冲区状态
   SHELL_LOG_SYS_INFO("Buffer after read: [0-3] = %02X %02X %02X %02X", 

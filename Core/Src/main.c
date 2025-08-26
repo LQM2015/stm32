@@ -708,11 +708,26 @@ void MPU_Config(void)
   */
   MPU_InitStruct.Number = MPU_REGION_NUMBER4;
   MPU_InitStruct.BaseAddress = 0x30000000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_64KB;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_16KB;  // 前16KB可缓存
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;  // DMA区域：不可缓存
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;    // 允许写缓冲
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;      // USB中间件需要缓存
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Configure specific DMA buffer region as non-cacheable
+  */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER8;
+  MPU_InitStruct.BaseAddress = 0x30004000;     // 从16KB偏移开始
+  MPU_InitStruct.Size = MPU_REGION_SIZE_32KB;  // 后32KB专用于DMA数据缓冲
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;  // DMA数据区：不可缓存
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
