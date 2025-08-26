@@ -25,7 +25,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "iwdg.h"
+#include "shell_log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,6 +61,13 @@ const osThreadAttr_t mic2isp_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
+/* Definitions for watchdogTask */
+osThreadId_t watchdogTaskHandle;
+const osThreadAttr_t watchdogTask_attributes = {
+  .name = "watchdogTask",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityHigh,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -68,6 +76,7 @@ const osThreadAttr_t mic2isp_attributes = {
 
 void StartDefaultTask(void *argument);
 void mic2isp_task(void *argument);
+void watchdog_task(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -196,6 +205,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of mic2isp */
   mic2ispHandle = osThreadNew(mic2isp_task, NULL, &mic2isp_attributes);
 
+  /* creation of watchdogTask */
+  watchdogTaskHandle = osThreadNew(watchdog_task, NULL, &watchdogTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -215,13 +227,19 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
-  /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
+  
+  // 添加调试输出
+  SHELL_LOG_SYS_INFO("DefaultTask started");
+  
+  // 延迟一段时间确保系统完全稳定
+  osDelay(2000);
+  
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    //SHELL_LOG_SYS_DEBUG("DefaultTask heartbeat");
+    osDelay(5000);  // 5秒打印一次心跳
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -236,12 +254,42 @@ void StartDefaultTask(void *argument)
 void mic2isp_task(void *argument)
 {
   /* USER CODE BEGIN mic2isp_task */
+  
+  SHELL_LOG_SYS_INFO("Mic2ISP task started");
+  
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    //SHELL_LOG_SYS_DEBUG("Mic2ISP task heartbeat");
+    osDelay(6000);  // 6秒打印一次心跳
   }
   /* USER CODE END mic2isp_task */
+}
+
+/* USER CODE BEGIN Header_watchdog_task */
+/**
+* @brief Function implementing the watchdog thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_watchdog_task */
+void watchdog_task(void *argument)
+{
+  /* USER CODE BEGIN watchdog_task */
+  extern IWDG_HandleTypeDef hiwdg1;
+  
+  SHELL_LOG_SYS_INFO("Watchdog task started");
+  
+  /* Infinite loop */
+  for(;;)
+  {
+    // 由于现在看门狗被禁用，这里只打印调试信息
+    //SHELL_LOG_SYS_DEBUG("Watchdog task heartbeat (IWDG disabled)");
+    
+    // 每5秒打印一次心跳
+    osDelay(5000);
+  }
+  /* USER CODE END watchdog_task */
 }
 
 /* Private application code --------------------------------------------------*/

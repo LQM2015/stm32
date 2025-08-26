@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "shell_port.h"
+#include "fault_handler.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -89,7 +90,17 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  __asm volatile
+  (
+      " tst lr, #4                                                \n"
+      " ite eq                                                    \n"
+      " mrseq r0, msp                                             \n"
+      " mrsne r0, psp                                             \n"
+      " ldr r1, [r0, #24]                                         \n"
+      " ldr r2, handler_address_const                             \n"
+      " bx r2                                                     \n"
+      " handler_address_const: .word fault_handler_c              \n"
+  );
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -104,7 +115,17 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+  __asm volatile
+  (
+      " tst lr, #4                                                \n"
+      " ite eq                                                    \n"
+      " mrseq r0, msp                                             \n"
+      " mrsne r0, psp                                             \n"
+      " ldr r1, [r0, #24]                                         \n"
+      " ldr r2, memmanage_handler_address_const                   \n"
+      " bx r2                                                     \n"
+      " memmanage_handler_address_const: .word fault_handler_c    \n"
+  );
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -119,7 +140,17 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+  __asm volatile
+  (
+      " tst lr, #4                                                \n"
+      " ite eq                                                    \n"
+      " mrseq r0, msp                                             \n"
+      " mrsne r0, psp                                             \n"
+      " ldr r1, [r0, #24]                                         \n"
+      " ldr r2, busfault_handler_address_const                    \n"
+      " bx r2                                                     \n"
+      " busfault_handler_address_const: .word fault_handler_c     \n"
+  );
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -134,7 +165,17 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+  __asm volatile
+  (
+      " tst lr, #4                                                \n"
+      " ite eq                                                    \n"
+      " mrseq r0, msp                                             \n"
+      " mrsne r0, psp                                             \n"
+      " ldr r1, [r0, #24]                                         \n"
+      " ldr r2, usagefault_handler_address_const                  \n"
+      " bx r2                                                     \n"
+      " usagefault_handler_address_const: .word fault_handler_c   \n"
+  );
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
@@ -149,7 +190,17 @@ void UsageFault_Handler(void)
 void DebugMon_Handler(void)
 {
   /* USER CODE BEGIN DebugMonitor_IRQn 0 */
-
+  __asm volatile
+  (
+      " tst lr, #4                                                \n"
+      " ite eq                                                    \n"
+      " mrseq r0, msp                                             \n"
+      " mrsne r0, psp                                             \n"
+      " ldr r1, [r0, #24]                                         \n"
+      " ldr r2, debugmon_handler_address_const                    \n"
+      " bx r2                                                     \n"
+      " debugmon_handler_address_const: .word fault_handler_c     \n"
+  );
   /* USER CODE END DebugMonitor_IRQn 0 */
   /* USER CODE BEGIN DebugMonitor_IRQn 1 */
 
