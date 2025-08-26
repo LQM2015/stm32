@@ -19,7 +19,14 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "bdma.h"
 #include "fatfs.h"
+#include "octospi.h"
+#include "sai.h"
+#include "sdmmc.h"
+#include "usart.h"
+#include "usb_device.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -49,32 +56,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 
-IWDG_HandleTypeDef hiwdg1;
-
-OSPI_HandleTypeDef hospi1;
-OSPI_HandleTypeDef hospi2;
-
-SAI_HandleTypeDef hsai_BlockA4;
-DMA_HandleTypeDef hdma_sai4_a;
-
-SD_HandleTypeDef hsd1;
-
-UART_HandleTypeDef huart3;
-
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 2048 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for mic2isp */
-osThreadId_t mic2ispHandle;
-const osThreadAttr_t mic2isp_attributes = {
-  .name = "mic2isp",
-  .stack_size = 1024 * 4,
-  .priority = (osPriority_t) osPriorityAboveNormal,
-};
 /* USER CODE BEGIN PV */
 // Shell实例声明
 extern Shell shell;
@@ -83,17 +64,7 @@ extern Shell shell;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_BDMA_Init(void);
-static void MX_SAI4_Init(void);
-void MX_SDMMC1_SD_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_IWDG1_Init(void);
-static void MX_OCTOSPI1_Init(void);
-static void MX_OCTOSPI2_Init(void);
-void StartDefaultTask(void *argument);
-void mic2isp_task(void *argument);
-
+void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 // 声明UART接收回调函数
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
@@ -146,13 +117,9 @@ int main(void)
   MX_GPIO_Init();
   MX_BDMA_Init();
   MX_SAI4_Init();
-  // 初始化UART3用于Shell
-  MX_USART3_UART_Init();
-  // debug_init();  // 已禁用debug系统
   MX_SDMMC1_SD_Init();
-  // SUCCESS_PRINTF("SD Card initialized successfully");
+  MX_USART3_UART_Init();
   MX_FATFS_Init();
-  // MX_IWDG1_Init();  // 暂时禁用看门狗用于调试
   MX_OCTOSPI1_Init();
   MX_OCTOSPI2_Init();
   /* USER CODE BEGIN 2 */
@@ -187,38 +154,8 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Init scheduler */
-  osKernelInitialize();
-
-  /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
-
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
-
-  /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
-
-  /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
-
-  /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-
-  /* creation of mic2isp */
-  mic2ispHandle = osThreadNew(mic2isp_task, NULL, &mic2isp_attributes);
-
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
-
-  /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
-  /* USER CODE END RTOS_EVENTS */
+  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
 
   /* Start scheduler */
   osKernelStart();
@@ -247,7 +184,7 @@ void SystemClock_Config(void)
 
   /** Supply configuration update enable
   */
-  HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
+  HAL_PWREx_ConfigSupply(PWR_DIRECT_SMPS_SUPPLY);
 
   /** Configure the main internal regulator output voltage
   */
@@ -258,17 +195,16 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 5;
-  RCC_OscInitStruct.PLL.PLLN = 220;
-  RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 2;
+  RCC_OscInitStruct.PLL.PLLM = 2;
+  RCC_OscInitStruct.PLL.PLLN = 40;
+  RCC_OscInitStruct.PLL.PLLP = 1;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
   RCC_OscInitStruct.PLL.PLLR = 2;
-  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
+  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -295,440 +231,9 @@ void SystemClock_Config(void)
   }
 }
 
-/**
-  * @brief IWDG1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_IWDG1_Init(void)
-{
-
-  /* USER CODE BEGIN IWDG1_Init 0 */
-
-  /* USER CODE END IWDG1_Init 0 */
-
-  /* USER CODE BEGIN IWDG1_Init 1 */
-
-  /* USER CODE END IWDG1_Init 1 */
-  hiwdg1.Instance = IWDG1;
-  hiwdg1.Init.Prescaler = IWDG_PRESCALER_32;
-  hiwdg1.Init.Window = 4095; /* Window disabled */
-  hiwdg1.Init.Reload = 999;   /* ~1 second timeout with 32KHz LSI clock */
-  if (HAL_IWDG_Init(&hiwdg1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN IWDG1_Init 2 */
-
-  /* USER CODE END IWDG1_Init 2 */
-
-}
-
-/**
-  * @brief OCTOSPI1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_OCTOSPI1_Init(void)
-{
-
-  /* USER CODE BEGIN OCTOSPI1_Init 0 */
-
-  /* USER CODE END OCTOSPI1_Init 0 */
-
-  OSPIM_CfgTypeDef sOspiManagerCfg = {0};
-
-  /* USER CODE BEGIN OCTOSPI1_Init 1 */
-
-  /* USER CODE END OCTOSPI1_Init 1 */
-  /* OCTOSPI1 parameter configuration*/
-  hospi1.Instance = OCTOSPI1;
-  hospi1.Init.FifoThreshold = 1;
-  hospi1.Init.DualQuad = HAL_OSPI_DUALQUAD_DISABLE;
-  hospi1.Init.MemoryType = HAL_OSPI_MEMTYPE_APMEMORY;
-  hospi1.Init.DeviceSize = 23;
-  hospi1.Init.ChipSelectHighTime = 1;
-  hospi1.Init.FreeRunningClock = HAL_OSPI_FREERUNCLK_DISABLE;
-  hospi1.Init.ClockMode = HAL_OSPI_CLOCK_MODE_0;
-  hospi1.Init.WrapSize = HAL_OSPI_WRAP_NOT_SUPPORTED;
-  hospi1.Init.ClockPrescaler = 4;
-  hospi1.Init.SampleShifting = HAL_OSPI_SAMPLE_SHIFTING_NONE;
-  hospi1.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_DISABLE;
-  hospi1.Init.ChipSelectBoundary = 0;
-  hospi1.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
-  hospi1.Init.MaxTran = 0;
-  hospi1.Init.Refresh = 0;
-  if (HAL_OSPI_Init(&hospi1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sOspiManagerCfg.ClkPort = 1;
-  sOspiManagerCfg.DQSPort = 1;
-  sOspiManagerCfg.NCSPort = 1;
-  sOspiManagerCfg.IOLowPort = HAL_OSPIM_IOPORT_1_LOW;
-  sOspiManagerCfg.IOHighPort = HAL_OSPIM_IOPORT_1_HIGH;
-  if (HAL_OSPIM_Config(&hospi1, &sOspiManagerCfg, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN OCTOSPI1_Init 2 */
-
-  /* USER CODE END OCTOSPI1_Init 2 */
-
-}
-
-/**
-  * @brief OCTOSPI2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_OCTOSPI2_Init(void)
-{
-
-  /* USER CODE BEGIN OCTOSPI2_Init 0 */
-
-  /* USER CODE END OCTOSPI2_Init 0 */
-
-  OSPIM_CfgTypeDef sOspiManagerCfg = {0};
-
-  /* USER CODE BEGIN OCTOSPI2_Init 1 */
-
-  /* USER CODE END OCTOSPI2_Init 1 */
-  /* OCTOSPI2 parameter configuration*/
-  hospi2.Instance = OCTOSPI2;
-  hospi2.Init.FifoThreshold = 1;
-  hospi2.Init.DualQuad = HAL_OSPI_DUALQUAD_ENABLE;
-  hospi2.Init.MemoryType = HAL_OSPI_MEMTYPE_MICRON;
-  hospi2.Init.DeviceSize = 27;
-  hospi2.Init.ChipSelectHighTime = 1;
-  hospi2.Init.FreeRunningClock = HAL_OSPI_FREERUNCLK_DISABLE;
-  hospi2.Init.ClockMode = HAL_OSPI_CLOCK_MODE_0;
-  hospi2.Init.WrapSize = HAL_OSPI_WRAP_NOT_SUPPORTED;
-  hospi2.Init.ClockPrescaler = 2;
-  hospi2.Init.SampleShifting = HAL_OSPI_SAMPLE_SHIFTING_NONE;
-  hospi2.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_DISABLE;
-  hospi2.Init.ChipSelectBoundary = 0;
-  hospi2.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
-  hospi2.Init.MaxTran = 0;
-  hospi2.Init.Refresh = 0;
-  if (HAL_OSPI_Init(&hospi2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sOspiManagerCfg.ClkPort = 2;
-  sOspiManagerCfg.NCSPort = 2;
-  sOspiManagerCfg.IOHighPort = HAL_OSPIM_IOPORT_2_HIGH;
-  if (HAL_OSPIM_Config(&hospi2, &sOspiManagerCfg, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN OCTOSPI2_Init 2 */
-
-  /* USER CODE END OCTOSPI2_Init 2 */
-
-}
-
-/**
-  * @brief SAI4 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SAI4_Init(void)
-{
-
-  /* USER CODE BEGIN SAI4_Init 0 */
-
-  /* USER CODE END SAI4_Init 0 */
-
-  /* USER CODE BEGIN SAI4_Init 1 */
-
-  /* USER CODE END SAI4_Init 1 */
-  hsai_BlockA4.Instance = SAI4_Block_A;
-  hsai_BlockA4.Init.AudioMode = SAI_MODEMASTER_RX;
-  hsai_BlockA4.Init.Synchro = SAI_ASYNCHRONOUS;
-  hsai_BlockA4.Init.OutputDrive = SAI_OUTPUTDRIVE_DISABLE;
-  hsai_BlockA4.Init.NoDivider = SAI_MASTERDIVIDER_ENABLE;
-  hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_FULL;
-  hsai_BlockA4.Init.AudioFrequency = SAI_AUDIO_FREQUENCY_48K;
-  hsai_BlockA4.Init.SynchroExt = SAI_SYNCEXT_DISABLE;
-  hsai_BlockA4.Init.MonoStereoMode = SAI_STEREOMODE;
-  hsai_BlockA4.Init.CompandingMode = SAI_NOCOMPANDING;
-  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_I2S_STANDARD, SAI_PROTOCOL_DATASIZE_16BIT, 8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SAI4_Init 2 */
-
-  /* USER CODE END SAI4_Init 2 */
-
-}
-
-/**
-  * @brief SDMMC1 Initialization Function
-  * @param None
- * @retval None
-  */
-void MX_SDMMC1_SD_Init(void)
-{
-
-  /* USER CODE BEGIN SDMMC1_Init 0 */
-
-  /* USER CODE END SDMMC1_Init 0 */
-
-  /* USER CODE BEGIN SDMMC1_Init 1 */
-
-  /* USER CODE END SDMMC1_Init 1 */
-  hsd1.Instance = SDMMC1;
-  hsd1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
-  hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
-  hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
-  hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd1.Init.ClockDiv = 10; /* With HCLK at 275MHz, SDMMC clk = 275 / (10*2) = 13.75MHz */
-  if (HAL_SD_Init(&hsd1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SDMMC1_Init 2 */
-
-  /* USER CODE END SDMMC1_Init 2 */
-
-}
-
-/**
-  * @brief USART3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART3_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART3_Init 0 */
-
-  /* USER CODE END USART3_Init 0 */
-
-  /* USER CODE BEGIN USART3_Init 1 */
-
-  /* USER CODE END USART3_Init 1 */
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART3_Init 2 */
-
-  /* USER CODE END USART3_Init 2 */
-
-}
-
-/**
-  * Enable DMA controller clock
-  */
-static void MX_BDMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_BDMA_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* BDMA_Channel0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(BDMA_Channel0_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(BDMA_Channel0_IRQn);
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
-}
-
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
-  /* USER CODE BEGIN 5 */
-  SHELL_LOG_TASK_INFO("DefaultTask starting...");
-
-  /* Mount SD card, format if needed, and write file */
-  FIL MyFile;     /* File object */
-  FRESULT res;    /* FatFs function common result code */
-  uint32_t byteswritten; /* File write counts */
-  char wtext[] = "helloworld";
-  uint8_t workBuffer[_MAX_SS]; /* Work buffer for f_mkfs() */
-
-  SHELL_LOG_FATFS_INFO("Attempting to mount SD card filesystem...");
-  /*##-1- Try to mount the file system ######################################*/
-  res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
-  if(res != FR_OK)
-  {
-    /* Mount failed, check if it's because there is no filesystem */
-    if (res == FR_NO_FILESYSTEM)
-    {
-      SHELL_LOG_FATFS_WARNING("No filesystem found, attempting to format SD card");
-      /*##-2- Format the disk ################################################*/
-      res = f_mkfs((TCHAR const*)USERPath, FM_FAT32, 0, workBuffer, sizeof(workBuffer));
-      if (res != FR_OK)
-      {
-        SHELL_LOG_FATFS_ERROR("Failed to format SD card: %d", res);
-      }
-      else
-      {
-        SHELL_LOG_FATFS_INFO("SD card formatted successfully");
-        /*##-3- Mount again after formatting #################################*/
-        res = f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
-        if (res != FR_OK)
-        {
-           SHELL_LOG_FATFS_ERROR("Failed to mount SD card even after format: %d", res);
-        }
-      }
-    }
-    else
-    {
-      SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", res);
-    }
-  }
-
-  /*##-4- If mount is successful, proceed to write file ####################*/
-  if (res == FR_OK)
-  {
-    SHELL_LOG_FATFS_INFO("SD Card mounted successfully");
-    osDelay(100); /* Add a short delay for card to stabilize before writing */
-    /*##-5- Create and Open a new text file object with write access ##########*/
-    if(f_open(&MyFile, "hello.txt", FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
-    {
-      /* 'hello.txt' file Open for write Error */
-      SHELL_LOG_FATFS_ERROR("Failed to open or create hello.txt");
-    }
-    else
-    {
-      SHELL_LOG_FATFS_DEBUG("hello.txt opened for writing");
-      /*##-6- Write data to the text file ################################*/
-      res = f_write(&MyFile, wtext, strlen(wtext), (void *)&byteswritten);
-
-      if((byteswritten == 0) || (res != FR_OK))
-      {
-        /* 'hello.txt' file Write or EOF Error */
-        SHELL_LOG_FATFS_ERROR("Failed to write to hello.txt: %d", res);
-      }
-      else
-      {
-        SHELL_LOG_FATFS_INFO("Successfully wrote %lu bytes to hello.txt", byteswritten);
-        /*##-7- Close the open text file #################################*/
-        f_close(&MyFile);
-        SHELL_LOG_FATFS_DEBUG("hello.txt closed");
-      }
-    }
-  }
-  
-  // 在任务中测试所有时钟配置（只执行一次）
-  static uint8_t test_executed = 0;
-  if (!test_executed) {
-    SHELL_LOG_CLK_INFO("Starting clock profile test in DefaultTask");
-    //TestAllClockProfiles();
-    SHELL_LOG_CLK_INFO("Clock profile test completed in DefaultTask");
-    test_executed = 1;
-  }
-  
-  uint32_t counter = 0;
-  
-  /* Infinite loop */
-  for(;;)
-  {
-    counter++;
-    
-    // 每10秒输出一次心跳信息
-    if (counter % 10000 == 0) {
-      // 使用日志系统记录心跳
-      SHELL_LOG_TASK_DEBUG("DefaultTask heartbeat - Counter: %lu", counter);
-    }
-    
-    osDelay(1);
-  }
-  /* USER CODE END 5 */
-}
-
-/* USER CODE BEGIN Header_mic2isp_task */
-/**
-* @brief Function implementing the mic2isp thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_mic2isp_task */
-void mic2isp_task(void *argument)
-{
-  /* USER CODE BEGIN mic2isp_task */
-  SHELL_LOG_TASK_INFO("Mic2ISP task starting...");
-  
-  uint32_t task_counter = 0;
-  
-  /* Infinite loop */
-  for(;;)
-  {
-    task_counter++;
-    
-    // 每30秒输出一次任务状态
-    if (task_counter % 30000 == 0) {
-      SHELL_LOG_TASK_DEBUG("Mic2ISP task running - Counter: %lu", task_counter);
-    }
-    
-    // 这里可以添加音频处理相关的代码
-    // TODO: 添加麦克风到ISP的数据处理逻辑
-    
-    osDelay(1);
-  }
-  /* USER CODE END mic2isp_task */
-}
 
  /* MPU Configuration */
 
