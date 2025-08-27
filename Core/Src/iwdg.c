@@ -38,9 +38,9 @@ void MX_IWDG1_Init(void)
 
   /* USER CODE END IWDG1_Init 1 */
   hiwdg1.Instance = IWDG1;
-  hiwdg1.Init.Prescaler = IWDG_PRESCALER_4;
+  hiwdg1.Init.Prescaler = IWDG_PRESCALER_256;  // 更大的分频器，延长超时时间
   hiwdg1.Init.Window = 4095;
-  hiwdg1.Init.Reload = 4095;
+  hiwdg1.Init.Reload = 4095;  // 超时时间 = (256 * 4095) / 32000 ≈ 32.8秒
   if (HAL_IWDG_Init(&hiwdg1) != HAL_OK)
   {
     Error_Handler();
@@ -52,5 +52,18 @@ void MX_IWDG1_Init(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+ * @brief 安全的看门狗喂狗函数
+ * @note 添加错误检查和状态验证
+ */
+void IWDG_SafeRefresh(void)
+{
+  // 确保看门狗已经初始化
+  if (hiwdg1.Instance == IWDG1) 
+  {
+    HAL_IWDG_Refresh(&hiwdg1);
+  }
+}
 
 /* USER CODE END 1 */

@@ -41,7 +41,8 @@ extern IWDG_HandleTypeDef hiwdg1;
 void MX_IWDG1_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+// 安全的看门狗喂狗函数
+void IWDG_SafeRefresh(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

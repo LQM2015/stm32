@@ -276,18 +276,22 @@ void mic2isp_task(void *argument)
 void watchdog_task(void *argument)
 {
   /* USER CODE BEGIN watchdog_task */
-  extern IWDG_HandleTypeDef hiwdg1;
-  
   SHELL_LOG_SYS_INFO("Watchdog task started");
+  
+  // 给系统一些时间完成初始化
+  osDelay(5000);
   
   /* Infinite loop */
   for(;;)
   {
-    // 由于现在看门狗被禁用，这里只打印调试信息
-    //SHELL_LOG_SYS_DEBUG("Watchdog task heartbeat (IWDG disabled)");
+    // 使用安全的喂看门狗函数 - 防止系统重启
+    // 看门狗超时时间约32.8秒，我们每15秒喂一次狗，留有充足的安全裕量
+    IWDG_SafeRefresh();
     
-    // 每5秒打印一次心跳
-    osDelay(5000);
+    //SHELL_LOG_SYS_DEBUG("Watchdog fed - system alive");
+    
+    // 每15秒喂一次看门狗（超时时间约32.8秒，安全系数约2.2）
+    osDelay(15000);
   }
   /* USER CODE END watchdog_task */
 }
