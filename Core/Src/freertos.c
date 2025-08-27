@@ -135,6 +135,39 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
    /* Run time stack overflow checking is performed if
    configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
    called if a stack overflow is detected. */
+   
+   // 记录栈溢出信息
+   SHELL_LOG_SYS_ERROR("========================================");
+   SHELL_LOG_SYS_ERROR("    FreeRTOS 栈溢出检测触发!!!");
+   SHELL_LOG_SYS_ERROR("========================================");
+   SHELL_LOG_SYS_ERROR("故障任务: %s", (char*)pcTaskName);
+   SHELL_LOG_SYS_ERROR("任务句柄: 0x%08X", (uint32_t)xTask);
+   
+   if (xTask != NULL) {
+       SHELL_LOG_SYS_ERROR("任务优先级: %u", (unsigned int)uxTaskPriorityGet(xTask));
+       SHELL_LOG_SYS_ERROR("任务状态: %u", (unsigned int)eTaskGetState(xTask));
+   }
+   
+   SHELL_LOG_SYS_ERROR("剩余堆空间: %u bytes", (unsigned int)xPortGetFreeHeapSize());
+   SHELL_LOG_SYS_ERROR("系统滴答计数: %lu", xTaskGetTickCount());
+   
+   SHELL_LOG_SYS_ERROR("========================================");
+   SHELL_LOG_SYS_ERROR("栈溢出检测到，系统即将停止运行");
+   SHELL_LOG_SYS_ERROR("请检查任务栈大小配置或递归深度");
+   SHELL_LOG_SYS_ERROR("========================================");
+   
+   // 确保输出完成
+   for(volatile int i = 0; i < 1000000; i++);
+   
+   // 触发硬故障以获得更详细的系统状态
+   // 这样可以进入我们的故障处理器查看更多信息
+   __asm volatile("svc #0");  // 触发系统调用异常
+   
+   // 如果上面的方法不起作用，直接进入死循环
+   while(1) {
+       __disable_irq();
+       __WFE();
+   }
 }
 /* USER CODE END 4 */
 
