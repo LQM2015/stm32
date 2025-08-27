@@ -271,20 +271,6 @@ void OTG_HS_EP1_IN_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles USB On The Go HS wake-up interrupt through EXTI line.
-  */
-void OTG_HS_WKUP_IRQHandler(void)
-{
-  /* USER CODE BEGIN OTG_HS_WKUP_IRQn 0 */
-
-  /* USER CODE END OTG_HS_WKUP_IRQn 0 */
-  HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
-  /* USER CODE BEGIN OTG_HS_WKUP_IRQn 1 */
-
-  /* USER CODE END OTG_HS_WKUP_IRQn 1 */
-}
-
-/**
   * @brief This function handles USB On The Go HS global interrupt.
   */
 void OTG_HS_IRQHandler(void)

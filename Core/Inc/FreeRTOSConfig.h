@@ -87,6 +87,7 @@
 #define configUSE_COUNTING_SEMAPHORES            1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION  0
 #define configUSE_TICKLESS_IDLE                  1
+#define configRECORD_STACK_HIGH_ADDRESS          1
 #define configUSE_POSIX_ERRNO                    1
 /* USER CODE BEGIN MESSAGE_BUFFER_LENGTH_TYPE */
 /* Defaults to size_t for backward compatibility, but can be changed
@@ -135,7 +136,6 @@ to exclude the API function. */
 #define INCLUDE_eTaskGetState                1
 #define INCLUDE_xTaskAbortDelay              1
 #define INCLUDE_xTaskGetHandle               1
-#define INCLUDE_uxTaskGetSystemState         1
 
 /*
  * The CMSIS-RTOS V2 FreeRTOS wrapper is dependent on the heap implementation used

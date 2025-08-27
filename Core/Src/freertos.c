@@ -61,10 +61,10 @@ const osThreadAttr_t mic2isp_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
-/* Definitions for watchdogTask */
-osThreadId_t watchdogTaskHandle;
-const osThreadAttr_t watchdogTask_attributes = {
-  .name = "watchdogTask",
+/* Definitions for watchdog */
+osThreadId_t watchdogHandle;
+const osThreadAttr_t watchdog_attributes = {
+  .name = "watchdog",
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
@@ -238,8 +238,8 @@ void MX_FREERTOS_Init(void) {
   /* creation of mic2isp */
   mic2ispHandle = osThreadNew(mic2isp_task, NULL, &mic2isp_attributes);
 
-  /* creation of watchdogTask */
-  watchdogTaskHandle = osThreadNew(watchdog_task, NULL, &watchdogTask_attributes);
+  /* creation of watchdog */
+  watchdogHandle = osThreadNew(watchdog_task, NULL, &watchdog_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -260,6 +260,8 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   
   // 添加调试输出
