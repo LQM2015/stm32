@@ -37,6 +37,7 @@
 #include "shell_port.h"
 #include "shell.h"
 #include "shell_log.h"
+#include "audio_recorder.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -138,6 +139,13 @@ int main(void)
   
   // 输出Shell初始化日志
   shell_init_log_output();
+  
+  // 初始化音频录制器
+  if (audio_recorder_init() == 0) {
+    SHELL_LOG_SYS_INFO("Audio recorder initialized successfully");
+  } else {
+    SHELL_LOG_SYS_ERROR("Failed to initialize audio recorder");
+  }
   
   // 测试日志系统
   SHELL_LOG_SYS_INFO("System initialization completed, starting FreeRTOS scheduler");

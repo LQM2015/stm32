@@ -18,6 +18,7 @@
 #include "task.h"
 #include "cmsis_os.h"
 #include "fatfs.h"
+#include "audio_recorder.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -2762,3 +2763,99 @@ int cmd_fshelp_extended(int argc, char *argv[])
 }
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  fshelp, cmd_fshelp_extended, comprehensive help for all file system commands);
+
+/* =================================================================== */
+/* Audio Recording Commands                                           */
+/* =================================================================== */
+
+/**
+ * @brief Start audio recording command
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_start(int argc, char *argv[])
+{
+    if (audio_recorder_get_state() != AUDIO_REC_IDLE) {
+        SHELL_LOG_USER_ERROR("Audio recording is already active or in error state");
+        return -1;
+    }
+    
+    if (audio_recorder_start() == 0) {
+        SHELL_LOG_USER_INFO("Audio recording started");
+        SHELL_LOG_USER_INFO("Format: %dch_%dbit_%dHz", 8, 16, 48000);
+        SHELL_LOG_USER_INFO("File: %s", audio_recorder_get_filename());
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to start audio recording");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Stop audio recording command
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_stop(int argc, char *argv[])
+{
+    if (audio_recorder_get_state() != AUDIO_REC_RECORDING) {
+        SHELL_LOG_USER_ERROR("No active recording to stop");
+        return -1;
+    }
+    
+    if (audio_recorder_stop() == 0) {
+        SHELL_LOG_USER_INFO("Audio recording stopped");
+        SHELL_LOG_USER_INFO("Total bytes written: %lu", audio_recorder_get_bytes_written());
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to stop audio recording");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Show audio recording status command
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_status(int argc, char *argv[])
+{
+    AudioRecorderState_t state = audio_recorder_get_state();
+    
+    SHELL_LOG_USER_INFO("Audio Recorder Status:");
+    SHELL_LOG_USER_INFO("  Format: 8ch_16bit_48000Hz");
+    
+    switch (state) {
+        case AUDIO_REC_IDLE:
+            SHELL_LOG_USER_INFO("  State: IDLE");
+            break;
+        case AUDIO_REC_RECORDING:
+            SHELL_LOG_USER_INFO("  State: RECORDING");
+            SHELL_LOG_USER_INFO("  File: %s", audio_recorder_get_filename());
+            SHELL_LOG_USER_INFO("  Bytes written: %lu", audio_recorder_get_bytes_written());
+            break;
+        case AUDIO_REC_STOPPING:
+            SHELL_LOG_USER_INFO("  State: STOPPING");
+            break;
+        case AUDIO_REC_ERROR:
+            SHELL_LOG_USER_INFO("  State: ERROR");
+            break;
+        default:
+            SHELL_LOG_USER_INFO("  State: UNKNOWN");
+            break;
+    }
+    
+    return 0;
+}
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_start, cmd_audio_start, start I2S TDM audio recording to SD card);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_stop, cmd_audio_stop, stop audio recording);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_status, cmd_audio_status, show audio recording status);

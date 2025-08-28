@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "shell_port.h"
 #include "fault_handler.h"
+#include "audio_recorder.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -314,5 +315,38 @@ void SAI4_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+ * @brief SAI RX Complete callback
+ * @param hsai: SAI handle
+ */
+void HAL_SAI_RxCpltCallback(SAI_HandleTypeDef *hsai)
+{
+    if (hsai->Instance == SAI4_Block_A) {
+        audio_recorder_rx_complete_callback();
+    }
+}
+
+/**
+ * @brief SAI RX Half Complete callback
+ * @param hsai: SAI handle
+ */
+void HAL_SAI_RxHalfCpltCallback(SAI_HandleTypeDef *hsai)
+{
+    if (hsai->Instance == SAI4_Block_A) {
+        audio_recorder_rx_half_complete_callback();
+    }
+}
+
+/**
+ * @brief SAI Error callback
+ * @param hsai: SAI handle
+ */
+void HAL_SAI_ErrorCallback(SAI_HandleTypeDef *hsai)
+{
+    if (hsai->Instance == SAI4_Block_A) {
+        audio_recorder_error_callback();
+    }
+}
 
 /* USER CODE END 1 */

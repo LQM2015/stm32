@@ -70,6 +70,11 @@ int cmd_du(int argc, char *argv[]);
 /* Help commands */
 int cmd_fshelp(int argc, char *argv[]);
 
+/* Audio recording commands */
+int cmd_audio_start(int argc, char *argv[]);
+int cmd_audio_stop(int argc, char *argv[]);
+int cmd_audio_status(int argc, char *argv[]);
+
 /* Additional utility commands */
 int cmd_echo(int argc, char *argv[]);
 int cmd_which(int argc, char *argv[]);
