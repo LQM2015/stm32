@@ -59,6 +59,7 @@
 /* External variables --------------------------------------------------------*/
 extern PCD_HandleTypeDef hpcd_USB_OTG_HS;
 extern DMA_HandleTypeDef hdma_sai4_a;
+extern SAI_HandleTypeDef hsai_BlockA4;
 extern UART_HandleTypeDef huart3;
 extern TIM_HandleTypeDef htim1;
 
@@ -296,6 +297,20 @@ void BDMA_Channel0_IRQHandler(void)
   /* USER CODE BEGIN BDMA_Channel0_IRQn 1 */
 
   /* USER CODE END BDMA_Channel0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles SAI4 global interrupt.
+  */
+void SAI4_IRQHandler(void)
+{
+  /* USER CODE BEGIN SAI4_IRQn 0 */
+
+  /* USER CODE END SAI4_IRQn 0 */
+  HAL_SAI_IRQHandler(&hsai_BlockA4);
+  /* USER CODE BEGIN SAI4_IRQn 1 */
+
+  /* USER CODE END SAI4_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
