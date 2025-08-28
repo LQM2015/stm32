@@ -1,0 +1,2 @@
+../Core/Src/fault_handler.c:45:13:print_fault_type	16	static
+../Core/Src/fault_handler.c:84:6:fault_handler_c	80	static,ignoring_inline_asm

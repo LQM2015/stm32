@@ -1,0 +1,8 @@
+../Core/Src/clock_management.c:14:13:DelayNoCycles	2
+../Core/Src/clock_management.c:31:17:CheckPeripheralCompatibility	6
+../Core/Src/clock_management.c:77:6:TestAllClockProfiles	3
+../Core/Src/clock_management.c:132:17:GetProfileFrequency	10
+../Core/Src/clock_management.c:155:19:SwitchSystemClock	28
+../Core/Src/clock_management.c:451:10:GetCurrentSystemClock	1
+../Core/Src/clock_management.c:460:16:GetCurrentClockProfile	9
+../Core/Src/clock_management.c:480:23:FindCompatibleProfile	3

@@ -1,0 +1,2 @@
+../Core/Src/iwdg.c:30:6:MX_IWDG1_Init	2
+../Core/Src/iwdg.c:60:6:IWDG_SafeRefresh	2

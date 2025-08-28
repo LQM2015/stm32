@@ -1,0 +1,8 @@
+../Core/Src/clock_management.c:14:13:DelayNoCycles	24	static,ignoring_inline_asm
+../Core/Src/clock_management.c:31:17:CheckPeripheralCompatibility	32	static
+../Core/Src/clock_management.c:77:6:TestAllClockProfiles	96	static
+../Core/Src/clock_management.c:132:17:GetProfileFrequency	16	static
+../Core/Src/clock_management.c:155:19:SwitchSystemClock	200	static,ignoring_inline_asm
+../Core/Src/clock_management.c:451:10:GetCurrentSystemClock	8	static
+../Core/Src/clock_management.c:460:16:GetCurrentClockProfile	16	static
+../Core/Src/clock_management.c:480:23:FindCompatibleProfile	32	static

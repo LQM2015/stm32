@@ -1,0 +1,15 @@
+../Core/Src/fault_test.c:8:6:test_hardfault_divide_by_zero	24	static,ignoring_inline_asm
+../Core/Src/fault_test.c:45:6:test_hardfault_null_pointer	32	static
+../Core/Src/fault_test.c:83:6:test_hardfault_invalid_memory_access	16	static
+../Core/Src/fault_test.c:103:6:test_hardfault_privileged_instruction	16	static,ignoring_inline_asm
+../Core/Src/fault_test.c:127:6:test_hardfault_bus_error	16	static
+../Core/Src/fault_test.c:147:6:test_hardfault_unaligned_access	24	static
+../Core/Src/fault_test.c:173:6:test_hardfault_undefined_instruction	16	static,ignoring_inline_asm
+../Core/Src/fault_test.c:207:6:test_hardfault_stack_direct	24	static,ignoring_inline_asm
+../Core/Src/fault_test.c:234:6:test_stack_overflow_recursive	2064	static
+../Core/Src/fault_test.c:262:6:test_hardfault_stack_overflow	8	static
+../Core/Src/fault_test.c:276:5:cmd_fault_test	16	static
+../Core/Src/fault_test.c:339:5:cmd_test_null	16	static
+../Core/Src/fault_test.c:348:5:cmd_test_memory	16	static
+../Core/Src/fault_test.c:357:5:cmd_test_instr	16	static
+../Core/Src/fault_test.c:366:5:cmd_test_stack	16	static

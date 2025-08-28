@@ -1,0 +1,12 @@
+../Shell/src/shell_port.c:46:7:shell_write	32	static
+../Shell/src/shell_port.c:91:7:shell_read	24	static
+../Shell/src/shell_port.c:108:12:shell_lock	16	static
+../Shell/src/shell_port.c:123:12:shell_unlock	16	static
+../Shell/src/shell_port.c:134:6:HAL_UART_RxCpltCallback	32	static,ignoring_inline_asm
+../Shell/src/shell_port.c:162:13:shell_task_function	24	static
+../Shell/src/shell_port.c:182:6:shell_init	24	static
+../Shell/src/shell_port.c:223:6:shell_init_log_output	8	static
+../Shell/src/shell_port.c:234:6:shell_task_create	4	static
+../Shell/src/shell_port.c:244:10:shell_get_rx_buffer	4	static
+../Shell/src/shell_port.c:255:6:shell_printf	272	static
+../Shell/src/shell_port.c:278:5:shell_exec	16	static

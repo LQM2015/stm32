@@ -1,0 +1,11 @@
+../Shell/src/shell_log.c:64:6:shellLogInit	4	static
+../Shell/src/shell_log.c:73:6:shellLogSetGlobalLevel	16	static
+../Shell/src/shell_log.c:85:6:shellLogSetModuleLevel	16	static
+../Shell/src/shell_log.c:96:6:shellLogSetColorEnabled	16	static
+../Shell/src/shell_log.c:105:6:shellLogSetTimestampEnabled	16	static
+../Shell/src/shell_log.c:115:13:shellLogGetModuleName	16	static
+../Shell/src/shell_log.c:128:13:shellLogGetLevelName	16	static
+../Shell/src/shell_log.c:141:13:shellLogGetLevelColor	16	static
+../Shell/src/shell_log.c:155:16:shellLogShouldPrint	16	static
+../Shell/src/shell_log.c:174:15:shellLogGetShell	4	static
+../Shell/src/shell_log.c:187:6:shellLogPrint	584	static

@@ -1,0 +1,12 @@
+../Shell/src/shell_port.c:46:7:shell_write	11
+../Shell/src/shell_port.c:91:7:shell_read	2
+../Shell/src/shell_port.c:108:12:shell_lock	2
+../Shell/src/shell_port.c:123:12:shell_unlock	2
+../Shell/src/shell_port.c:134:6:HAL_UART_RxCpltCallback	3
+../Shell/src/shell_port.c:162:13:shell_task_function	1
+../Shell/src/shell_port.c:182:6:shell_init	3
+../Shell/src/shell_port.c:223:6:shell_init_log_output	1
+../Shell/src/shell_port.c:234:6:shell_task_create	1
+../Shell/src/shell_port.c:244:10:shell_get_rx_buffer	1
+../Shell/src/shell_port.c:255:6:shell_printf	2
+../Shell/src/shell_port.c:278:5:shell_exec	2
