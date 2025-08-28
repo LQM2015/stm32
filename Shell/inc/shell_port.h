@@ -25,7 +25,7 @@ extern "C" {
 #define SHELL_UART                  &huart3
 #define SHELL_BUFFER_SIZE           512
 #define SHELL_RX_QUEUE_SIZE         64
-#define SHELL_TASK_STACK_SIZE       2048
+#define SHELL_TASK_STACK_SIZE       8192
 #define SHELL_TASK_PRIORITY         3
 
 /* Exported types ------------------------------------------------------------*/

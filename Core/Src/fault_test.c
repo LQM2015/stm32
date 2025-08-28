@@ -2,6 +2,7 @@
 #include "shell_log.h"
 #include "shell.h"
 #include "stm32h7xx.h"
+#include <string.h>
 
 // Test divide by zero error
 void test_hardfault_divide_by_zero(void)

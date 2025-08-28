@@ -1,5 +1,6 @@
 #include "main.h"
 #include "shell_log.h"
+#include "shell_port.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
