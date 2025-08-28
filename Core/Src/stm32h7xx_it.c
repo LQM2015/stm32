@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "shell_port.h"
 #include "fault_handler.h"
+#include "tusb.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -278,7 +279,10 @@ void OTG_HS_IRQHandler(void)
   /* USER CODE BEGIN OTG_HS_IRQn 0 */
 
   /* USER CODE END OTG_HS_IRQn 0 */
-  HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
+  
+  // Call TinyUSB interrupt handler instead of HAL
+  tud_int_handler(0);
+  
   /* USER CODE BEGIN OTG_HS_IRQn 1 */
 
   /* USER CODE END OTG_HS_IRQn 1 */

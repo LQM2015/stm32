@@ -38,6 +38,11 @@
 #include "shell.h"
 #include "shell_log.h"
 #include <stdio.h>
+
+// TinyUSB includes
+#include "tusb.h"
+#include "bsp_board.h"
+#include "tinyusb_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -126,6 +131,9 @@ int main(void)
   MX_IWDG1_Init();
   /* USER CODE BEGIN 2 */
   
+  // Initialize TinyUSB
+  board_init();
+  tud_init(BOARD_TUD_RHPORT);
   
   // 打印系统信息 - 已禁用
   // debug_print_system_info();
@@ -140,7 +148,7 @@ int main(void)
   shell_init_log_output();
   
   // 测试日志系统
-  SHELL_LOG_SYS_INFO("System initialization completed, starting FreeRTOS scheduler");
+  SHELL_LOG_SYS_INFO("System initialization completed, TinyUSB initialized, starting FreeRTOS scheduler");
   
   // UART接收中断将在shell任务中启动，这里不需要重复启动
   

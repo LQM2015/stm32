@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "iwdg.h"
 #include "shell_log.h"
+#include "tinyusb_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,6 +69,13 @@ const osThreadAttr_t watchdog_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
+/* Definitions for tinyusbTask */
+osThreadId_t tinyusbTaskHandle;
+const osThreadAttr_t tinyusbTask_attributes = {
+  .name = "tinyusbTask",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -77,6 +85,7 @@ const osThreadAttr_t watchdog_attributes = {
 void StartDefaultTask(void *argument);
 void mic2isp_task(void *argument);
 void watchdog_task(void *argument);
+void tinyusb_task(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -241,6 +250,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of watchdog */
   watchdogHandle = osThreadNew(watchdog_task, NULL, &watchdog_attributes);
 
+  /* creation of tinyusbTask */
+  tinyusbTaskHandle = osThreadNew(tinyusb_task, NULL, &tinyusbTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -329,6 +341,30 @@ void watchdog_task(void *argument)
     osDelay(15000);
   }
   /* USER CODE END watchdog_task */
+}
+
+/* USER CODE BEGIN Header_tinyusb_task */
+/**
+* @brief Function implementing the tinyusb thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_tinyusb_task */
+void tinyusb_task(void *argument)
+{
+  /* USER CODE BEGIN tinyusb_task */
+  SHELL_LOG_SYS_INFO("TinyUSB task started");
+  
+  /* Infinite loop */
+  for(;;)
+  {
+    // Run TinyUSB device task
+    tinyusb_device_task();
+    
+    // Small delay to prevent task hogging
+    osDelay(1);
+  }
+  /* USER CODE END tinyusb_task */
 }
 
 /* Private application code --------------------------------------------------*/
