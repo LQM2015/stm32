@@ -14,6 +14,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "cmsis_os.h"
+#include "stm32h7xx_hal.h" // For SCB_InvalidateDCache_by_Addr
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -678,6 +679,9 @@ void audio_recorder_process(void)
 
     if (half_buffer_ready) {
         half_buffer_ready = false;
+        // Invalidate D-Cache for the first half of the buffer before CPU access
+        // This is crucial for STM32H7 devices to ensure cache coherency with DMA
+        SCB_InvalidateDCache_by_Addr((uint32_t*)&audio_buffer[0], AUDIO_BUFFER_SIZE / 2);
         if (write_audio_data(&audio_buffer[0], AUDIO_BUFFER_SIZE / 2) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write first half of buffer, stopping recording.");
             audio_recorder_stop();
@@ -687,6 +691,8 @@ void audio_recorder_process(void)
 
     if (buffer_ready) {
         buffer_ready = false;
+        // Invalidate D-Cache for the second half of the buffer before CPU access
+        SCB_InvalidateDCache_by_Addr((uint32_t*)&audio_buffer[AUDIO_BUFFER_SIZE / 4], AUDIO_BUFFER_SIZE / 2);
         if (write_audio_data(&audio_buffer[AUDIO_BUFFER_SIZE / 4], AUDIO_BUFFER_SIZE / 2) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write second half of buffer, stopping recording.");
             audio_recorder_stop();
