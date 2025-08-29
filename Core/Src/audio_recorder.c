@@ -5,11 +5,15 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "audio_recorder.h"
+#include "../Inc/audio_recorder.h"
 #include "sai.h"
 #include "fatfs.h"
 #include "shell_log.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include "cmsis_os.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -23,6 +27,9 @@ static uint16_t audio_buffer[AUDIO_BUFFER_SIZE / 2]; // 16-bit samples
 static volatile bool buffer_ready = false;
 static volatile bool half_buffer_ready = false;
 
+static osSemaphoreId_t audio_data_sem = NULL;
+static osThreadId_t audio_process_thread_id = NULL;
+
 // External variables from fatfs
 extern FATFS USERFatFS;
 extern char USERPath[4];
@@ -32,6 +39,7 @@ static void generate_filename(char* filename, size_t size);
 static int write_audio_data(uint16_t* data, uint32_t size);
 static void debug_sai_status(void);
 static int check_sd_card_status(void);
+static void audio_process_thread(void *argument);
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -179,6 +187,25 @@ int audio_recorder_init(void)
     
     // Clear audio buffer
     memset(audio_buffer, 0, sizeof(audio_buffer));
+
+    // Create semaphore for data processing
+    audio_data_sem = osSemaphoreNew(1, 0, NULL);
+    if (audio_data_sem == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to create audio data semaphore");
+        return -1;
+    }
+
+    // Create audio processing thread
+    const osThreadAttr_t audio_process_thread_attributes = {
+        .name = "AudioProcess",
+        .stack_size = 512 * 4, // 2KB stack
+        .priority = (osPriority_t) osPriorityHigh,
+    };
+    audio_process_thread_id = osThreadNew(audio_process_thread, NULL, &audio_process_thread_attributes);
+    if (audio_process_thread_id == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to create audio processing thread");
+        return -1;
+    }
     
     SHELL_LOG_USER_INFO("Audio recorder initialization completed, state: %d", recorder.state);
     return 0;
@@ -366,6 +393,33 @@ int audio_recorder_start(void)
     recorder.state = AUDIO_REC_RECORDING;
     SHELL_LOG_USER_DEBUG("State set to RECORDING: %d", recorder.state);
     
+    // The persistent AFSDET error suggests a fundamental configuration mismatch,
+    // likely the Frame Sync (FS) polarity. This section attempts to fix this by
+    // re-initializing the SAI peripheral with an overridden FS polarity setting.
+    SHELL_LOG_USER_DEBUG("Resetting SAI and overriding FS polarity...");
+
+    // 1. Fully de-initialize the peripheral to ensure a clean slate.
+    if (HAL_SAI_DeInit(&hsai_BlockA4) != HAL_OK) {
+        SHELL_LOG_USER_ERROR("SAI DeInit failed. This could lead to issues.");
+    }
+
+    // 2. Run the standard CubeMX-generated initialization function.
+    MX_SAI4_Init();
+
+    // 3. **Override the FS Polarity.** AFSDET is often caused by a mismatch here.
+    // We will try setting it to Active Low, a common configuration.
+    SHELL_LOG_USER_INFO("Overriding FS Polarity to Active Low.");
+    hsai_BlockA4.FrameInit.FSPolarity = SAI_FS_ACTIVE_LOW;
+
+    // 4. Re-initialize the SAI with the modified configuration.
+    if (HAL_SAI_Init(&hsai_BlockA4) != HAL_OK) {
+        SHELL_LOG_USER_ERROR("SAI Re-Init with override failed!");
+        recorder.state = AUDIO_REC_ERROR;
+        return -1;
+    }
+
+    HAL_Delay(5); // Brief delay after re-init to allow things to settle.
+
     // Start SAI DMA reception
     SHELL_LOG_USER_INFO("Starting SAI DMA reception, buffer size: %d", AUDIO_BUFFER_SIZE / 2);
     SHELL_LOG_USER_DEBUG("SAI handle: %p, buffer address: %p", &hsai_BlockA4, audio_buffer);
@@ -620,6 +674,52 @@ int audio_recorder_check_sd_card(void)
     return check_sd_card_status();
 }
 
+/**
+ * @brief Audio processing thread function
+ * @param argument: Not used
+ */
+static void audio_process_thread(void *argument)
+{
+    (void)argument;
+    for (;;) {
+        // Wait for a signal from the DMA callbacks
+        if (osSemaphoreAcquire(audio_data_sem, osWaitForever) == osOK) {
+            // Call the processing function if recording
+            if (recorder.state == AUDIO_REC_RECORDING) {
+                audio_recorder_process();
+            }
+        }
+    }
+}
+
+/**
+ * @brief Process audio data buffers. This should be called from the main loop.
+ */
+void audio_recorder_process(void)
+{
+    if (recorder.state != AUDIO_REC_RECORDING) {
+        return;
+    }
+
+    if (half_buffer_ready) {
+        half_buffer_ready = false;
+        if (write_audio_data(&audio_buffer[0], AUDIO_BUFFER_SIZE / 2) != 0) {
+            SHELL_LOG_USER_ERROR("Failed to write first half of buffer, stopping recording.");
+            audio_recorder_stop();
+            recorder.state = AUDIO_REC_ERROR;
+        }
+    }
+
+    if (buffer_ready) {
+        buffer_ready = false;
+        if (write_audio_data(&audio_buffer[AUDIO_BUFFER_SIZE / 4], AUDIO_BUFFER_SIZE / 2) != 0) {
+            SHELL_LOG_USER_ERROR("Failed to write second half of buffer, stopping recording.");
+            audio_recorder_stop();
+            recorder.state = AUDIO_REC_ERROR;
+        }
+    }
+}
+
 /* Callback functions --------------------------------------------------------*/
 
 /**
@@ -627,29 +727,9 @@ int audio_recorder_check_sd_card(void)
  */
 void audio_recorder_rx_complete_callback(void)
 {
-    SHELL_LOG_USER_DEBUG("RX complete callback triggered");
-    SHELL_LOG_USER_DEBUG("Current state: %d", recorder.state);
-    
     if (recorder.state == AUDIO_REC_RECORDING) {
-        // 检查音频数据是否有效（不全为0）
-        int non_zero_count = 0;
-        uint16_t* second_half = &audio_buffer[AUDIO_BUFFER_SIZE / 4];
-        for (int i = 0; i < 10 && i < AUDIO_BUFFER_SIZE / 4; i++) {
-            if (second_half[i] != 0) non_zero_count++;
-        }
-        SHELL_LOG_USER_DEBUG("Second half - Non-zero samples in first 10: %d, first sample: 0x%04X", 
-                            non_zero_count, second_half[0]);
-        
-        SHELL_LOG_USER_DEBUG("Writing second half of buffer, size: %d bytes", AUDIO_BUFFER_SIZE / 2);
-        // Write second half of buffer
-        int result = write_audio_data(&audio_buffer[AUDIO_BUFFER_SIZE / 4], AUDIO_BUFFER_SIZE / 2);
-        if (result == 0) {
-            SHELL_LOG_USER_DEBUG("Second half buffer written successfully");
-        } else {
-            SHELL_LOG_USER_ERROR("Failed to write second half buffer");
-        }
-    } else {
-        SHELL_LOG_USER_WARNING("RX complete callback called but not recording, state: %d", recorder.state);
+        buffer_ready = true;
+        osSemaphoreRelease(audio_data_sem);
     }
 }
 
@@ -658,28 +738,9 @@ void audio_recorder_rx_complete_callback(void)
  */
 void audio_recorder_rx_half_complete_callback(void)
 {
-    SHELL_LOG_USER_DEBUG("RX half complete callback triggered");
-    SHELL_LOG_USER_DEBUG("Current state: %d", recorder.state);
-    
     if (recorder.state == AUDIO_REC_RECORDING) {
-        // 检查音频数据是否有效（不全为0）
-        int non_zero_count = 0;
-        for (int i = 0; i < 10 && i < AUDIO_BUFFER_SIZE / 4; i++) {
-            if (audio_buffer[i] != 0) non_zero_count++;
-        }
-        SHELL_LOG_USER_DEBUG("First half - Non-zero samples in first 10: %d, first sample: 0x%04X", 
-                            non_zero_count, audio_buffer[0]);
-        
-        SHELL_LOG_USER_DEBUG("Writing first half of buffer, size: %d bytes", AUDIO_BUFFER_SIZE / 2);
-        // Write first half of buffer
-        int result = write_audio_data(&audio_buffer[0], AUDIO_BUFFER_SIZE / 2);
-        if (result == 0) {
-            SHELL_LOG_USER_DEBUG("First half buffer written successfully");
-        } else {
-            SHELL_LOG_USER_ERROR("Failed to write first half buffer");
-        }
-    } else {
-        SHELL_LOG_USER_WARNING("RX half complete callback called but not recording, state: %d", recorder.state);
+        half_buffer_ready = true;
+        osSemaphoreRelease(audio_data_sem);
     }
 }
 
