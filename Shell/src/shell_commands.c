@@ -2849,7 +2849,9 @@ int cmd_audio_status(int argc, char *argv[])
             SHELL_LOG_USER_INFO("  State: UNKNOWN");
             break;
     }
-    
+    audio_recorder_debug_status();
+    audio_recorder_check_sd_card();
+
     return 0;
 }
 

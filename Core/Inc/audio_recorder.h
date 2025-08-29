@@ -50,9 +50,12 @@ typedef struct {
 int audio_recorder_init(void);
 int audio_recorder_start(void);
 int audio_recorder_stop(void);
+int audio_recorder_force_stop(void);
 AudioRecorderState_t audio_recorder_get_state(void);
 uint32_t audio_recorder_get_bytes_written(void);
 const char* audio_recorder_get_filename(void);
+void audio_recorder_debug_status(void);
+int audio_recorder_check_sd_card(void);
 
 /* Callback functions */
 void audio_recorder_rx_complete_callback(void);
