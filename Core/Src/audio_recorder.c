@@ -83,8 +83,10 @@ static int write_audio_data(uint16_t* data, uint32_t size)
     
     recorder.bytes_written += bytes_written;
     
-    // Sync file periodically to ensure data is written
-    if (recorder.bytes_written % (AUDIO_BUFFER_SIZE * 10) == 0) {
+    // Sync file periodically to ensure data is written.
+    // Increased the interval to reduce the frequency of potentially long, blocking f_sync calls,
+    // which might interfere with time-sensitive peripherals like SAI.
+    if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 100) == 0) {
         SHELL_LOG_USER_DEBUG("Syncing file, total written: %lu bytes", (unsigned long)recorder.bytes_written);
         f_sync(&recorder.file);
     }
@@ -393,33 +395,6 @@ int audio_recorder_start(void)
     recorder.state = AUDIO_REC_RECORDING;
     SHELL_LOG_USER_DEBUG("State set to RECORDING: %d", recorder.state);
     
-    // The persistent AFSDET error suggests a fundamental configuration mismatch,
-    // likely the Frame Sync (FS) polarity. This section attempts to fix this by
-    // re-initializing the SAI peripheral with an overridden FS polarity setting.
-    SHELL_LOG_USER_DEBUG("Resetting SAI and overriding FS polarity...");
-
-    // 1. Fully de-initialize the peripheral to ensure a clean slate.
-    if (HAL_SAI_DeInit(&hsai_BlockA4) != HAL_OK) {
-        SHELL_LOG_USER_ERROR("SAI DeInit failed. This could lead to issues.");
-    }
-
-    // 2. Run the standard CubeMX-generated initialization function.
-    MX_SAI4_Init();
-
-    // 3. **Override the FS Polarity.** AFSDET is often caused by a mismatch here.
-    // We will try setting it to Active Low, a common configuration.
-    SHELL_LOG_USER_INFO("Overriding FS Polarity to Active Low.");
-    hsai_BlockA4.FrameInit.FSPolarity = SAI_FS_ACTIVE_LOW;
-
-    // 4. Re-initialize the SAI with the modified configuration.
-    if (HAL_SAI_Init(&hsai_BlockA4) != HAL_OK) {
-        SHELL_LOG_USER_ERROR("SAI Re-Init with override failed!");
-        recorder.state = AUDIO_REC_ERROR;
-        return -1;
-    }
-
-    HAL_Delay(5); // Brief delay after re-init to allow things to settle.
-
     // Start SAI DMA reception
     SHELL_LOG_USER_INFO("Starting SAI DMA reception, buffer size: %d", AUDIO_BUFFER_SIZE / 2);
     SHELL_LOG_USER_DEBUG("SAI handle: %p, buffer address: %p", &hsai_BlockA4, audio_buffer);
@@ -754,6 +729,10 @@ void audio_recorder_error_callback(void)
     
     if (recorder.state == AUDIO_REC_RECORDING) {
         SHELL_LOG_USER_ERROR("SAI error during recording, stopping...");
+        
+        // Print detailed status at the moment of error
+        debug_sai_status();
+        
         recorder.state = AUDIO_REC_ERROR;
         
         // Stop DMA and close file

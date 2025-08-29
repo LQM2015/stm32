@@ -41,7 +41,11 @@ void MX_SAI4_Init(void)
   /* USER CODE END SAI4_Init 1 */
 
   hsai_BlockA4.Instance = SAI4_Block_A;
+  hsai_BlockA4.Init.Protocol = SAI_FREE_PROTOCOL;
   hsai_BlockA4.Init.AudioMode = SAI_MODESLAVE_RX;
+  hsai_BlockA4.Init.DataSize = SAI_DATASIZE_16;
+  hsai_BlockA4.Init.FirstBit = SAI_FIRSTBIT_MSB;
+  hsai_BlockA4.Init.ClockStrobing = SAI_CLOCKSTROBING_RISINGEDGE;
   hsai_BlockA4.Init.Synchro = SAI_ASYNCHRONOUS;
   hsai_BlockA4.Init.OutputDrive = SAI_OUTPUTDRIVE_DISABLE;
   hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_FULL;
@@ -49,7 +53,19 @@ void MX_SAI4_Init(void)
   hsai_BlockA4.Init.MonoStereoMode = SAI_STEREOMODE;
   hsai_BlockA4.Init.CompandingMode = SAI_NOCOMPANDING;
   hsai_BlockA4.Init.TriState = SAI_OUTPUT_NOTRELEASED;
-  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_I2S_STANDARD, SAI_PROTOCOL_DATASIZE_16BIT, 8) != HAL_OK)
+  hsai_BlockA4.Init.PdmInit.Activation = DISABLE;
+  hsai_BlockA4.Init.PdmInit.MicPairsNbr = 0;
+  hsai_BlockA4.Init.PdmInit.ClockEnable = SAI_PDM_CLOCK1_ENABLE;
+  hsai_BlockA4.FrameInit.FrameLength = 128;
+  hsai_BlockA4.FrameInit.ActiveFrameLength = 1;
+  hsai_BlockA4.FrameInit.FSDefinition = SAI_FS_STARTFRAME;
+  hsai_BlockA4.FrameInit.FSPolarity = SAI_FS_ACTIVE_LOW;
+  hsai_BlockA4.FrameInit.FSOffset = SAI_FS_FIRSTBIT;
+  hsai_BlockA4.SlotInit.FirstBitOffset = 0;
+  hsai_BlockA4.SlotInit.SlotSize = SAI_SLOTSIZE_DATASIZE;
+  hsai_BlockA4.SlotInit.SlotNumber = 8;
+  hsai_BlockA4.SlotInit.SlotActive = 0x0000FFFF;
+  if (HAL_SAI_Init(&hsai_BlockA4) != HAL_OK)
   {
     Error_Handler();
   }
