@@ -57,9 +57,9 @@ void MX_SAI4_Init(void)
   hsai_BlockA4.Init.PdmInit.MicPairsNbr = 0;
   hsai_BlockA4.Init.PdmInit.ClockEnable = SAI_PDM_CLOCK1_ENABLE;
   hsai_BlockA4.FrameInit.FrameLength = 128;
-  hsai_BlockA4.FrameInit.ActiveFrameLength = 1;
+  hsai_BlockA4.FrameInit.ActiveFrameLength = 32;
   hsai_BlockA4.FrameInit.FSDefinition = SAI_FS_STARTFRAME;
-  hsai_BlockA4.FrameInit.FSPolarity = SAI_FS_ACTIVE_LOW;
+  hsai_BlockA4.FrameInit.FSPolarity = SAI_FS_ACTIVE_HIGH;
   hsai_BlockA4.FrameInit.FSOffset = SAI_FS_FIRSTBIT;
   hsai_BlockA4.SlotInit.FirstBitOffset = 0;
   hsai_BlockA4.SlotInit.SlotSize = SAI_SLOTSIZE_DATASIZE;
@@ -113,7 +113,7 @@ void HAL_SAI_MspInit(SAI_HandleTypeDef* saiHandle)
     GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_13|GPIO_PIN_12;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF10_SAI4;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
