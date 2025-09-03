@@ -47,32 +47,31 @@ void MX_SAI4_Init(void)
   /* Use a lower FIFO threshold to generate DMA requests earlier and reduce overrun risk.
    * FULL means DMA only triggered when FIFO full (for RX this can increase latency).
    * 1/4 is a good balance for continuous TDM capture at modest bit clocks.
+   * For Late Frame Sync issues, use 1/4 threshold for better timing tolerance.
    */
   hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_FULL;
   hsai_BlockA4.Init.SynchroExt = SAI_SYNCEXT_DISABLE;
   hsai_BlockA4.Init.MonoStereoMode = SAI_STEREOMODE;
   hsai_BlockA4.Init.CompandingMode = SAI_NOCOMPANDING;
   hsai_BlockA4.Init.TriState = SAI_OUTPUT_NOTRELEASED;
-  hsai_BlockA4.SlotInit.SlotActive = 0xFF; /* 8 LSB bits => 8 slots active */
-  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_PCM_SHORT, SAI_PROTOCOL_DATASIZE_16BIT, 8) != HAL_OK)
+  hsai_BlockA4.SlotInit.SlotActive = 0x0F; /* 4 LSB bits => 4 slots active (slots 0-3) */
+  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_PCM_SHORT, SAI_PROTOCOL_DATASIZE_16BIT, 4) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN SAI4_Init 2 */
   /*
-   * Captured timing: BCLK ≈ 2.048 MHz, FS = 16 kHz, 8 channels, 16-bit each.
-   * Formula: 16k * 8 * 16 = 2.048 MHz => Frame length 128 bits.
-   * Using HAL_SAI_InitProtocol(SAI_PCM_SHORT, 16bit, 8 slots) yields:
-   *   FrameLength = 128, ActiveFrameLength = 1, FSOffset = FIRSTBIT, SlotSize = DATASIZE(16), SlotNumber=8.
-   * If you need to switch to 32-bit slots later (e.g. expansion), replace InitProtocol with manual Init:
-   *   hsai_BlockA4.Init.Protocol = SAI_FREE_PROTOCOL; hsai_BlockA4.Init.DataSize=SAI_DATASIZE_16;
-   *   hsai_BlockA4.FrameInit.FrameLength=128; hsai_BlockA4.FrameInit.ActiveFrameLength=1; etc.
+   * 4-channel TDM configuration:
+   * BCLK ≈ 1.024 MHz, FS = 16 kHz, 4 channels, 16-bit each.
+   * Formula: 16k * 4 * 16 = 1.024 MHz => Frame length 64 bits.
+   * Using HAL_SAI_InitProtocol(SAI_PCM_SHORT, 16bit, 4 slots) yields:
+   *   FrameLength = 64, ActiveFrameLength = 1, FSOffset = FIRSTBIT, SlotSize = DATASIZE(16), SlotNumber=4.
    *
-   * Active slots: currently all 8 (0..7). If fewer channels required, update SlotActive mask after InitProtocol:
-   *   hsai_BlockA4.SlotInit.SlotActive = (SAI_SLOTACTIVE_0 | SAI_SLOTACTIVE_1 | ...);
+   * Active slots: slots 0-3 for 4 channels. SlotActive mask = 0x0F.
+   *   hsai_BlockA4.SlotInit.SlotActive = (SAI_SLOTACTIVE_0 | SAI_SLOTACTIVE_1 | SAI_SLOTACTIVE_2 | SAI_SLOTACTIVE_3);
    */
-  /* Ensure slot active mask explicitly set (defensive clarity). */
-  //hsai_BlockA4.SlotInit.SlotActive = 0xFF; /* 8 LSB bits => 8 slots active */
+  /* Ensure slot active mask explicitly set for 4 channels */
+  //hsai_BlockA4.SlotInit.SlotActive = 0x0F; /* 4 LSB bits => 4 slots active */
 
   /* USER CODE END SAI4_Init 2 */
 

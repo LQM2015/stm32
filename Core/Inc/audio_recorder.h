@@ -39,8 +39,8 @@ typedef struct {
 } AudioRecorder_t;
 
 /* Exported constants --------------------------------------------------------*/
-#define AUDIO_BUFFER_SIZE       (8192)  // Buffer size in bytes (multiple of frame size * 2).
-#define AUDIO_CHANNELS          8       // Number of channels
+#define AUDIO_BUFFER_SIZE       (4096)  // Buffer size in bytes (multiple of frame size * 2), reduced for 4ch
+#define AUDIO_CHANNELS          4       // Number of channels (changed from 8 to 4)
 #define AUDIO_BIT_DEPTH         16      // Bits per sample
 #define AUDIO_SAMPLE_RATE       16000   // Sample rate in Hz
 

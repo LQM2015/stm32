@@ -46,6 +46,10 @@ extern char USERPath[4];
 static void generate_filename(char* filename, size_t size);
 static int write_audio_data(uint16_t* data, uint32_t size);
 static void debug_sai_status(void);
+static void monitor_sai_timing(void);
+static void reset_sai_timing_status(void);
+static void validate_sai_configuration(void);
+void audio_recorder_process(void);
 static int check_sd_card_status(void);
 static void audio_process_thread(void *argument);
 static int verify_file_exists(const char* filepath);
@@ -112,15 +116,204 @@ static void debug_sai_status(void)
     SHELL_LOG_USER_DEBUG("SAI State: %d", HAL_SAI_GetState(&hsai_BlockA4));
     SHELL_LOG_USER_DEBUG("SAI Error Code: 0x%08lX", hsai_BlockA4.ErrorCode);
     
+    // Decode SAI error codes
+    if (hsai_BlockA4.ErrorCode != HAL_SAI_ERROR_NONE) {
+        SHELL_LOG_USER_ERROR("=== SAI Error Analysis ===");
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_OVR) {
+            SHELL_LOG_USER_ERROR("- Overrun Error detected");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_UDR) {
+            SHELL_LOG_USER_ERROR("- Underrun Error detected");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_AFSDET) {
+            SHELL_LOG_USER_ERROR("- Anticipated Frame Sync Detection Error");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_LFSDET) {
+            SHELL_LOG_USER_ERROR("- Late Frame Sync Detection Error");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_CNREADY) {
+            SHELL_LOG_USER_ERROR("- Codec Not Ready Error");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_WCKCFG) {
+            SHELL_LOG_USER_ERROR("- Wrong Clock Configuration Error");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_TIMEOUT) {
+            SHELL_LOG_USER_ERROR("- Timeout Error");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_DMA) {
+            SHELL_LOG_USER_ERROR("- DMA Error");
+        }
+    }
+    
     // Check DMA status if available
     if (hsai_BlockA4.hdmarx != NULL) {
         SHELL_LOG_USER_DEBUG("DMA State: %d", HAL_DMA_GetState(hsai_BlockA4.hdmarx));
         SHELL_LOG_USER_DEBUG("DMA Error Code: 0x%08lX", hsai_BlockA4.hdmarx->ErrorCode);
+        
+        // Decode DMA error codes
+        if (hsai_BlockA4.hdmarx->ErrorCode != HAL_DMA_ERROR_NONE) {
+            SHELL_LOG_USER_ERROR("=== DMA Error Analysis ===");
+            if (hsai_BlockA4.hdmarx->ErrorCode & HAL_DMA_ERROR_TE) {
+                SHELL_LOG_USER_ERROR("- DMA Transfer Error");
+            }
+            if (hsai_BlockA4.hdmarx->ErrorCode & HAL_DMA_ERROR_FE) {
+                SHELL_LOG_USER_ERROR("- DMA FIFO Error");
+            }
+            if (hsai_BlockA4.hdmarx->ErrorCode & HAL_DMA_ERROR_DME) {
+                SHELL_LOG_USER_ERROR("- DMA Direct Mode Error");
+            }
+            if (hsai_BlockA4.hdmarx->ErrorCode & HAL_DMA_ERROR_TIMEOUT) {
+                SHELL_LOG_USER_ERROR("- DMA Timeout Error");
+            }
+        }
     } else {
         SHELL_LOG_USER_WARNING("DMA handle is NULL");
     }
     
+    // Print SAI detailed status registers for Late Frame Sync analysis
+    uint32_t sai_sr = hsai_BlockA4.Instance->SR;
+    uint32_t sai_cr1 = hsai_BlockA4.Instance->CR1;
+    uint32_t sai_frcr = hsai_BlockA4.Instance->FRCR;
+    uint32_t sai_slotr = hsai_BlockA4.Instance->SLOTR;
+    
+    SHELL_LOG_USER_INFO("=== SAI Register Analysis ===");
+    SHELL_LOG_USER_INFO("SAI4_Block_A Status Register (SR): 0x%08lX", sai_sr);
+    SHELL_LOG_USER_INFO("  - FIFO Level: %ld/8", (sai_sr & SAI_xSR_FLVL) >> SAI_xSR_FLVL_Pos);
+    SHELL_LOG_USER_INFO("  - Status Flags: %s%s%s%s%s%s%s", 
+                        (sai_sr & SAI_xSR_OVRUDR) ? "OVR " : "",
+                        (sai_sr & SAI_xSR_MUTEDET) ? "MUTE " : "",
+                        (sai_sr & SAI_xSR_WCKCFG) ? "WCKCFG " : "",
+                        (sai_sr & SAI_xSR_FREQ) ? "FREQ " : "",
+                        (sai_sr & SAI_xSR_CNRDY) ? "CNRDY " : "",
+                        (sai_sr & SAI_xSR_AFSDET) ? "AFSDET " : "",
+                        (sai_sr & SAI_xSR_LFSDET) ? "LFSDET " : "");
+    
+    SHELL_LOG_USER_INFO("SAI4_Block_A Control (CR1): 0x%08lX", sai_cr1);
+    SHELL_LOG_USER_INFO("  - Mode: %s", (sai_cr1 & SAI_xCR1_MODE) ? "Master" : "Slave");
+    SHELL_LOG_USER_INFO("  - Protocol: %s", (sai_cr1 & SAI_xCR1_PRTCFG) ? "Free/Spdif" : "I2S/MSB/LSB/PCM");
+    SHELL_LOG_USER_INFO("  - FIFO Threshold: %ld", (hsai_BlockA4.Instance->CR2 & SAI_xCR2_FTH) >> SAI_xCR2_FTH_Pos);
+    
+    SHELL_LOG_USER_INFO("SAI4_Block_A Frame (FRCR): 0x%08lX", sai_frcr);
+    SHELL_LOG_USER_INFO("SAI4_Block_A Slot (SLOTR): 0x%08lX", sai_slotr);
+    
+    // Check if SAI is currently enabled and receiving data
+    SHELL_LOG_USER_INFO("SAI Enabled: %s", (sai_cr1 & SAI_xCR1_SAIEN) ? "YES" : "NO");
+    SHELL_LOG_USER_INFO("DMA Enabled: %s", (sai_cr1 & SAI_xCR1_DMAEN) ? "YES" : "NO");
+    
     SHELL_LOG_USER_DEBUG("========================");
+}
+
+/**
+ * @brief Monitor SAI timing status for Late Frame Sync Detection
+ */
+static void monitor_sai_timing(void)
+{
+    static uint32_t last_check_time = 0;
+    static uint32_t lfsdet_count = 0;
+    
+    uint32_t current_time = HAL_GetTick();
+    
+    // Check every 1000ms during recording
+    if (recorder.state == AUDIO_REC_RECORDING && 
+        (current_time - last_check_time >= 1000)) {
+        
+        uint32_t sai_sr = hsai_BlockA4.Instance->SR;
+        
+        // Check for Late Frame Sync Detection flag
+        if (sai_sr & SAI_xSR_LFSDET) {
+            lfsdet_count++;
+            SHELL_LOG_USER_WARNING("LFSDET detected (count: %ld), clearing flag", lfsdet_count);
+            
+            // Clear the flag to prevent continuous interrupts
+            __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_LFSDET);
+            
+            // If too many LFSDET errors, suggest configuration changes
+            if (lfsdet_count >= 3) {
+                SHELL_LOG_USER_ERROR("Multiple LFSDET errors detected!");
+                SHELL_LOG_USER_ERROR("Possible solutions:");
+                SHELL_LOG_USER_ERROR("1. Check external I2S/TDM clock stability");
+                SHELL_LOG_USER_ERROR("2. Verify signal integrity (scope trace)");
+                SHELL_LOG_USER_ERROR("3. Consider adjusting SAI FIFO threshold");
+                SHELL_LOG_USER_ERROR("4. Check for EMI interference");
+            }
+        }
+        
+        // Monitor FIFO level for early warning
+        uint32_t fifo_level = (sai_sr & SAI_xSR_FLVL) >> SAI_xSR_FLVL_Pos;
+        if (fifo_level == 0) {
+            SHELL_LOG_USER_WARNING("SAI FIFO empty - possible timing issue");
+        } else if (fifo_level >= 7) {
+            SHELL_LOG_USER_WARNING("SAI FIFO near full (%ld/8) - possible overrun risk", fifo_level);
+        }
+        
+        last_check_time = current_time;
+    }
+}
+
+/**
+ * @brief Reset SAI timing status and clear error flags
+ */
+static void reset_sai_timing_status(void)
+{
+    // Clear any existing SAI error flags
+    __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_LFSDET);
+    __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_AFSDET);
+    __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_CNRDY);
+    __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_FREQ);
+    __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_WCKCFG);
+    __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_OVRUDR);
+    
+    // Reset error code
+    hsai_BlockA4.ErrorCode = HAL_SAI_ERROR_NONE;
+    
+    SHELL_LOG_USER_INFO("SAI timing status reset, all error flags cleared");
+}
+
+/**
+ * @brief Validate SAI configuration to ensure it's properly set to slave mode
+ */
+static void validate_sai_configuration(void)
+{
+    uint32_t sai_cr1 = hsai_BlockA4.Instance->CR1;
+    uint32_t sai_cr2 = hsai_BlockA4.Instance->CR2;
+    uint32_t sai_frcr = hsai_BlockA4.Instance->FRCR;
+    uint32_t sai_slotr = hsai_BlockA4.Instance->SLOTR;
+    
+    SHELL_LOG_USER_INFO("=== SAI Configuration Validation ===");
+    
+    // Check if SAI is in slave mode (bit 1:0 should be 00 for slave RX)
+    uint32_t mode = sai_cr1 & SAI_xCR1_MODE;
+    if (mode == SAI_xCR1_MODE_1) {
+        SHELL_LOG_USER_ERROR("ERROR: SAI is in MASTER TX mode (0x%02lX), should be SLAVE RX", mode >> SAI_xCR1_MODE_Pos);
+    } else if (mode == (SAI_xCR1_MODE_1 | SAI_xCR1_MODE_0)) {
+        SHELL_LOG_USER_ERROR("ERROR: SAI is in MASTER RX mode (0x%02lX), should be SLAVE RX", mode >> SAI_xCR1_MODE_Pos);
+    } else if (mode == SAI_xCR1_MODE_0) {
+        SHELL_LOG_USER_ERROR("ERROR: SAI is in SLAVE TX mode (0x%02lX), should be SLAVE RX", mode >> SAI_xCR1_MODE_Pos);
+    } else {
+        SHELL_LOG_USER_INFO("OK: SAI is in SLAVE RX mode");
+    }
+    
+    // Check FIFO threshold
+    uint32_t fifo_th = (sai_cr2 & SAI_xCR2_FTH) >> SAI_xCR2_FTH_Pos;
+    SHELL_LOG_USER_INFO("FIFO Threshold: %ld (0=empty, 1=1/4, 2=1/2, 3=3/4, 4=full)", fifo_th);
+    
+    // Check frame length (should be 64 for 4ch*16bit)
+    uint32_t frame_len = ((sai_frcr & SAI_xFRCR_FRL) >> SAI_xFRCR_FRL_Pos) + 1;
+    if (frame_len != 64) {
+        SHELL_LOG_USER_WARNING("Frame length is %ld, expected 64 for 4ch*16bit", frame_len);
+    } else {
+        SHELL_LOG_USER_INFO("OK: Frame length is %ld", frame_len);
+    }
+    
+    // Check active slots
+    uint32_t slot_active = (sai_slotr & SAI_xSLOTR_SLOTEN) >> SAI_xSLOTR_SLOTEN_Pos;
+    if (slot_active != 0x0F) {
+        SHELL_LOG_USER_WARNING("Active slots: 0x%02lX, expected 0x0F for 4 channels", slot_active);
+    } else {
+        SHELL_LOG_USER_INFO("OK: All 4 slots active (0x%02lX)", slot_active);
+    }
+    
+    SHELL_LOG_USER_INFO("=== Configuration Validation Complete ===");
 }
 
 /**
@@ -279,6 +472,12 @@ int audio_recorder_start(void)
         return -1;
     }
     
+    // Reset SAI timing status and clear any error flags
+    reset_sai_timing_status();
+    
+    // Validate SAI configuration before starting
+    validate_sai_configuration();
+    
     // Check if SD card is mounted first
     SHELL_LOG_USER_DEBUG("Checking SD card mount status...");
     FATFS *fs;
@@ -374,7 +573,7 @@ int audio_recorder_start(void)
     
     // Try with directory path
     char full_path[64];
-    snprintf(full_path, sizeof(full_path), "audio/%s", recorder.filename);
+    snprintf(full_path, sizeof(full_path), "%s", recorder.filename);
     SHELL_LOG_USER_INFO("Attempting to open file: %s", full_path);
     
     // Open file for writing
@@ -390,7 +589,7 @@ int audio_recorder_start(void)
     }
     
     if (res != FR_OK) {
-        SHELL_LOG_USER_ERROR("Failed to open file in audio/ directory, FRESULT: %d", res);
+        SHELL_LOG_USER_ERROR("Failed to open file in / directory, FRESULT: %d", res);
         SHELL_LOG_USER_INFO("Trying to open file in root directory...");
         res = f_open(&recorder.file, recorder.filename, FA_CREATE_ALWAYS | FA_WRITE);
         if (res != FR_OK) {
@@ -437,7 +636,7 @@ int audio_recorder_start(void)
             // Keep original filename (no need to copy to itself)
         }
     } else {
-        SHELL_LOG_USER_INFO("File opened successfully in audio/ directory");
+        SHELL_LOG_USER_INFO("File opened successfully in / directory");
         strcpy(recorder.filename, full_path); // Update to full path
     }
     
@@ -757,6 +956,9 @@ void audio_recorder_process(void)
         return;
     }
 
+    // Monitor SAI timing status for Late Frame Sync issues
+    monitor_sai_timing();
+
     if (half_buffer_ready) {
         half_buffer_ready = false;
     // Non-cacheable region: no invalidate required
@@ -819,14 +1021,35 @@ void audio_recorder_error_callback(void)
         // Print detailed status at the moment of error
         debug_sai_status();
         
+        // Check and provide specific error guidance
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_LFSDET) {
+            SHELL_LOG_USER_ERROR("Late Frame Sync detected");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_AFSDET) {
+            SHELL_LOG_USER_ERROR("Anticipated Frame Sync detected - frame timing issue");
+            SHELL_LOG_USER_ERROR("Suggestion: Verify SAI frame configuration and external codec");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_OVR) {
+            SHELL_LOG_USER_ERROR("SAI Overrun - data not read fast enough");
+            SHELL_LOG_USER_ERROR("Suggestion: Check DMA configuration and buffer handling");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_UDR) {
+            SHELL_LOG_USER_ERROR("SAI Underrun - data not supplied fast enough");
+            SHELL_LOG_USER_ERROR("Suggestion: Check DMA configuration and data flow");
+        }
+        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_WCKCFG) {
+            SHELL_LOG_USER_ERROR("Wrong Clock Configuration detected");
+            SHELL_LOG_USER_ERROR("Suggestion: Verify SAI clock settings and PLL configuration");
+        }
+        
         recorder.state = AUDIO_REC_ERROR;
         
         // Stop DMA and close file
         HAL_SAI_DMAStop(&hsai_BlockA4);
-        if (recorder.file_open) {
-            f_close(&recorder.file);
-            recorder.file_open = false;
-        }
+        // if (recorder.file_open) {
+        //     f_close(&recorder.file);
+        //     recorder.file_open = false;
+        // }
         
         SHELL_LOG_USER_ERROR("Recording stopped due to SAI error");
     }

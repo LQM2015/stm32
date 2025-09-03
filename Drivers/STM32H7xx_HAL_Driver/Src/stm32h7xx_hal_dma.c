@@ -105,10 +105,68 @@
 
 #ifdef HAL_DMA_MODULE_ENABLED
 
+
+/* USER CODE BEGIN DMA_DEBUG_CONFIG */
+/* 
+ * DMA Debug Logging Configuration
+ * 
+ * DMA_DEBUG_LOGGING_ENABLED: 
+ *   - 1: Enable DMA debug logging (useful for debugging DMA issues)
+ *   - 0: Disable DMA debug logging (recommended for production)
+ * 
+ * DMA_DEBUG_LEVEL:
+ *   - DMA_DEBUG_LEVEL_NONE (0):    No debug logs
+ *   - DMA_DEBUG_LEVEL_ERROR (1):   Only critical errors (recommended default)
+ *   - DMA_DEBUG_LEVEL_INFO (2):    Errors + important events (moderate verbosity)
+ *   - DMA_DEBUG_LEVEL_VERBOSE (3): All debug information (high verbosity)
+ * 
+ * Note: These macros are defined in stm32h7xx_hal_dma.c
+ * Change them there to adjust logging behavior.
+ */
+/* USER CODE END DMA_DEBUG_CONFIG */
+
+/* DMA Debug Logging Control */
+/* Set to 1 to enable detailed DMA debugging logs, 0 to disable */
+#define DMA_DEBUG_LOGGING_ENABLED   0
+
+/* DMA Debug Log Levels */
+#define DMA_DEBUG_LEVEL_NONE        0   /* No debug logs */
+#define DMA_DEBUG_LEVEL_ERROR       1   /* Only error conditions */
+#define DMA_DEBUG_LEVEL_INFO        2   /* Errors + important events */
+#define DMA_DEBUG_LEVEL_VERBOSE     3   /* All debug information */
+
+/* Current DMA debug level - adjust this to control verbosity */
+#define DMA_DEBUG_LEVEL             DMA_DEBUG_LEVEL_ERROR
+
 /* External logging function declaration */
 extern void shellLogPrint(int module, int level, const char* format, ...);
 #define SHELL_LOG_MODULE_SYSTEM 0
 #define SHELL_LOG_LEVEL_ERROR 3
+
+/* DMA Debug Logging Macros */
+#if (DMA_DEBUG_LOGGING_ENABLED == 1)
+  #define DMA_DEBUG_LOG_ERROR(...)   do { \
+                                       if (DMA_DEBUG_LEVEL >= DMA_DEBUG_LEVEL_ERROR) { \
+                                         shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, __VA_ARGS__); \
+                                       } \
+                                     } while(0)
+  
+  #define DMA_DEBUG_LOG_INFO(...)    do { \
+                                       if (DMA_DEBUG_LEVEL >= DMA_DEBUG_LEVEL_INFO) { \
+                                         shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, __VA_ARGS__); \
+                                       } \
+                                     } while(0)
+  
+  #define DMA_DEBUG_LOG_VERBOSE(...) do { \
+                                       if (DMA_DEBUG_LEVEL >= DMA_DEBUG_LEVEL_VERBOSE) { \
+                                         shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, __VA_ARGS__); \
+                                       } \
+                                     } while(0)
+#else
+  #define DMA_DEBUG_LOG_ERROR(...)   ((void)0)
+  #define DMA_DEBUG_LOG_INFO(...)    ((void)0)
+  #define DMA_DEBUG_LOG_VERBOSE(...) ((void)0)
+#endif
 
 /* Private types -------------------------------------------------------------*/
 /** @addtogroup DMA_Private_Types
@@ -697,9 +755,8 @@ HAL_StatusTypeDef HAL_DMA_Start_IT(DMA_HandleTypeDef *hdma, uint32_t SrcAddress,
   }
 
   /* Log DMA Start IT entry */
-  shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-               "[DMA_DEBUG] HAL_DMA_Start_IT Entry - Stream: %lu, Instance: 0x%08lX, State: %d", 
-               hdma->StreamIndex, (uint32_t)hdma->Instance, hdma->State);
+  DMA_DEBUG_LOG_INFO("[DMA_DEBUG] HAL_DMA_Start_IT Entry - Stream: %lu, Instance: 0x%08lX, State: %d", 
+                     hdma->StreamIndex, (uint32_t)hdma->Instance, hdma->State);
 
   /* Process locked */
   __HAL_LOCK(hdma);
@@ -759,9 +816,8 @@ HAL_StatusTypeDef HAL_DMA_Start_IT(DMA_HandleTypeDef *hdma, uint32_t SrcAddress,
     }
 
     /* Enable the Peripheral */
-    shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                 "[DMA_DEBUG] Enabling DMA peripheral - Stream: %lu, Instance: 0x%08lX", 
-                 hdma->StreamIndex, (uint32_t)hdma->Instance);
+    DMA_DEBUG_LOG_INFO("[DMA_DEBUG] Enabling DMA peripheral - Stream: %lu, Instance: 0x%08lX", 
+                       hdma->StreamIndex, (uint32_t)hdma->Instance);
     __HAL_DMA_ENABLE(hdma);
   }
   else
@@ -1091,9 +1147,8 @@ HAL_StatusTypeDef HAL_DMA_PollForTransfer(DMA_HandleTypeDef *hdma, HAL_DMA_Level
       if(((*isr_reg) & (DMA_FLAG_TEIF0_4 << (hdma->StreamIndex & 0x1FU))) != 0U)
       {
         /* Log DMA transfer error in polling mode */
-        shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                     "[DMA_DEBUG] Transfer error in HAL_DMA_PollForTransfer (DMA Stream), Stream: %lu, Instance: 0x%08lX", 
-                     hdma->StreamIndex, (uint32_t)hdma->Instance);
+        DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] Transfer error in HAL_DMA_PollForTransfer (DMA Stream), Stream: %lu, Instance: 0x%08lX", 
+                           hdma->StreamIndex, (uint32_t)hdma->Instance);
         
         /* Update error code */
         hdma->ErrorCode |= HAL_DMA_ERROR_TE;
@@ -1120,9 +1175,8 @@ HAL_StatusTypeDef HAL_DMA_PollForTransfer(DMA_HandleTypeDef *hdma, HAL_DMA_Level
         (*isr_reg) = ((BDMA_ISR_GIF0) << (hdma->StreamIndex & 0x1FU));
 
         /* Log BDMA transfer error in polling mode */
-        shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                     "[DMA_DEBUG] Transfer error in HAL_DMA_PollForTransfer (BDMA), Stream: %lu, Instance: 0x%08lX", 
-                     hdma->StreamIndex, (uint32_t)hdma->Instance);
+        DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] Transfer error in HAL_DMA_PollForTransfer (BDMA), Stream: %lu, Instance: 0x%08lX", 
+                           hdma->StreamIndex, (uint32_t)hdma->Instance);
 
         /* Update error code */
         hdma->ErrorCode = HAL_DMA_ERROR_TE;
@@ -1243,9 +1297,8 @@ void HAL_DMA_IRQHandler(DMA_HandleTypeDef *hdma)
   tmpisr_bdma = regs_bdma->ISR;
 
   /* Log entry to IRQ handler with key status */
-  shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-               "[DMA_DEBUG] IRQ Handler Entry - Stream: %lu, Instance: 0x%08lX, DMA_ISR: 0x%08lX, BDMA_ISR: 0x%08lX, State: %d", 
-               hdma->StreamIndex, (uint32_t)hdma->Instance, tmpisr_dma, tmpisr_bdma, hdma->State);
+  DMA_DEBUG_LOG_VERBOSE("[DMA_DEBUG] IRQ Handler Entry - Stream: %lu, Instance: 0x%08lX, DMA_ISR: 0x%08lX, BDMA_ISR: 0x%08lX, State: %d", 
+                        hdma->StreamIndex, (uint32_t)hdma->Instance, tmpisr_dma, tmpisr_bdma, hdma->State);
 
   if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U)  /* DMA1 or DMA2 instance */
   {
@@ -1255,9 +1308,8 @@ void HAL_DMA_IRQHandler(DMA_HandleTypeDef *hdma)
       if(__HAL_DMA_GET_IT_SOURCE(hdma, DMA_IT_TE) != 0U)
       {
         /* Log DMA transfer error with detailed information */
-        shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                     "[DMA_DEBUG] Transfer error in HAL_DMA_IRQHandler (DMA Stream), Stream: %lu, Instance: 0x%08lX, ISR: 0x%08lX", 
-                     hdma->StreamIndex, (uint32_t)hdma->Instance, tmpisr_dma);
+        DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] Transfer error in HAL_DMA_IRQHandler (DMA Stream), Stream: %lu, Instance: 0x%08lX, ISR: 0x%08lX", 
+                           hdma->StreamIndex, (uint32_t)hdma->Instance, tmpisr_dma);
         
         /* Disable the transfer error interrupt */
         ((DMA_Stream_TypeDef   *)hdma->Instance)->CR  &= ~(DMA_IT_TE);
@@ -1426,9 +1478,8 @@ void HAL_DMA_IRQHandler(DMA_HandleTypeDef *hdma)
       if((hdma->ErrorCode & HAL_DMA_ERROR_TE) != 0U)
       {
         /* Log error state change with additional context */
-        shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                     "[DMA_DEBUG] Managing transfer error, changing state to ABORT. Stream: %lu, Instance: 0x%08lX, ErrorCode: 0x%08lX", 
-                     hdma->StreamIndex, (uint32_t)hdma->Instance, hdma->ErrorCode);
+        DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] Managing transfer error, changing state to ABORT. Stream: %lu, Instance: 0x%08lX, ErrorCode: 0x%08lX", 
+                           hdma->StreamIndex, (uint32_t)hdma->Instance, hdma->ErrorCode);
         
         hdma->State = HAL_DMA_STATE_ABORT;
 
@@ -1447,8 +1498,7 @@ void HAL_DMA_IRQHandler(DMA_HandleTypeDef *hdma)
         if((((DMA_Stream_TypeDef   *)hdma->Instance)->CR & DMA_SxCR_EN) != 0U)
         {
           /* Log if DMA disable fails */
-          shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                       "[DMA_DEBUG] DMA disable failed, changing state to ERROR. Stream: %lu", hdma->StreamIndex);
+          DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] DMA disable failed, changing state to ERROR. Stream: %lu", hdma->StreamIndex);
           /* Change the DMA state to error if DMA disable fails */
           hdma->State = HAL_DMA_STATE_ERROR;
         }
@@ -1589,26 +1639,21 @@ void HAL_DMA_IRQHandler(DMA_HandleTypeDef *hdma)
       uint32_t cmar = ((BDMA_Channel_TypeDef *)hdma->Instance)->CM0AR;
 
       /* Log BDMA transfer error with detailed analysis */
-      shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                   "[DMA_DEBUG] BDMA TE Analysis - Stream: %lu, Instance: 0x%08lX, ISR: 0x%08lX", 
-                   hdma->StreamIndex, (uint32_t)hdma->Instance, tmpisr_bdma);
+      DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] BDMA TE Analysis - Stream: %lu, Instance: 0x%08lX, ISR: 0x%08lX", 
+                         hdma->StreamIndex, (uint32_t)hdma->Instance, tmpisr_bdma);
       
-      shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                   "[DMA_DEBUG] BDMA CCR Details - MSIZE:%lu PSIZE:%lu MINC:%lu PINC:%lu CIRC:%lu DIR:%lu PL:%lu EN:%lu", 
-                   mem_size, psize, minc, pinc, circ, dir, pl, en);
+      DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] BDMA CCR Details - MSIZE:%lu PSIZE:%lu MINC:%lu PINC:%lu CIRC:%lu DIR:%lu PL:%lu EN:%lu", 
+                         mem_size, psize, minc, pinc, circ, dir, pl, en);
       
-      shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                   "[DMA_DEBUG] BDMA Addresses - CPAR:0x%08lX CMAR:0x%08lX CNDTR:%lu", 
-                   cpar, cmar, cndtr);
+      DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] BDMA Addresses - CPAR:0x%08lX CMAR:0x%08lX CNDTR:%lu", 
+                         cpar, cmar, cndtr);
 
       /* Check address alignment issues */
       if ((cpar & 0x3) != 0) {
-        shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                     "[DMA_DEBUG] ERROR: Peripheral address not 32-bit aligned!");
+        DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] ERROR: Peripheral address not 32-bit aligned!");
       }
       if ((cmar & 0x3) != 0) {
-        shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                     "[DMA_DEBUG] ERROR: Memory address not 32-bit aligned!");
+        DMA_DEBUG_LOG_ERROR("[DMA_DEBUG] ERROR: Memory address not 32-bit aligned!");
       }
       
       /* When a DMA transfer error occurs */
@@ -1857,9 +1902,8 @@ static void DMA_SetConfig(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t
   BDMA_Base_Registers *regs_bdma = (BDMA_Base_Registers *)hdma->StreamBaseAddress;
 
   /* Log DMA configuration */
-  shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-               "[DMA_DEBUG] DMA_SetConfig - Stream: %lu, Instance: 0x%08lX, Src: 0x%08lX, Dst: 0x%08lX, Len: %lu", 
-               hdma->StreamIndex, (uint32_t)hdma->Instance, SrcAddress, DstAddress, DataLength);
+  DMA_DEBUG_LOG_INFO("[DMA_DEBUG] DMA_SetConfig - Stream: %lu, Instance: 0x%08lX, Src: 0x%08lX, Dst: 0x%08lX, Len: %lu", 
+                     hdma->StreamIndex, (uint32_t)hdma->Instance, SrcAddress, DstAddress, DataLength);
 
   if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U) /* No DMAMUX available for BDMA1 */
   {
@@ -1885,9 +1929,8 @@ static void DMA_SetConfig(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t
     ((DMA_Stream_TypeDef *)hdma->Instance)->NDTR = DataLength;
 
     /* Log DMA stream configuration */
-    shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                 "[DMA_DEBUG] DMA Stream Config - NDTR set to %lu, Direction: %lu", 
-                 DataLength, hdma->Init.Direction);
+    DMA_DEBUG_LOG_INFO("[DMA_DEBUG] DMA Stream Config - NDTR set to %lu, Direction: %lu", 
+                       DataLength, hdma->Init.Direction);
 
     /* Peripheral to Memory */
     if((hdma->Init.Direction) == DMA_MEMORY_TO_PERIPH)
@@ -1917,9 +1960,8 @@ static void DMA_SetConfig(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t
     ((BDMA_Channel_TypeDef *)hdma->Instance)->CNDTR = DataLength;
 
     /* Log BDMA channel configuration */
-    shellLogPrint(SHELL_LOG_MODULE_SYSTEM, SHELL_LOG_LEVEL_ERROR, 
-                 "[DMA_DEBUG] BDMA Channel Config - CNDTR set to %lu, Direction: %lu", 
-                 DataLength, hdma->Init.Direction);
+    DMA_DEBUG_LOG_INFO("[DMA_DEBUG] BDMA Channel Config - CNDTR set to %lu, Direction: %lu", 
+                       DataLength, hdma->Init.Direction);
 
     /* Peripheral to Memory */
     if((hdma->Init.Direction) == DMA_MEMORY_TO_PERIPH)
