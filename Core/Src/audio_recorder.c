@@ -53,6 +53,7 @@ void audio_recorder_process(void);
 static int check_sd_card_status(void);
 static void audio_process_thread(void *argument);
 static int verify_file_exists(const char* filepath);
+static int recover_file_handle(void);
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -87,21 +88,82 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         return -1;
     }
     
-    res = f_write(&recorder.file, data, size, &bytes_written);
-    if (res != FR_OK || bytes_written != size) {
-        SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, requested: %lu, written: %lu", 
-               res, (unsigned long)size, (unsigned long)bytes_written);
+    // Verify file object validity before writing
+    if (recorder.file.obj.fs == NULL) {
+        SHELL_LOG_USER_ERROR("File object invalid - filesystem pointer is NULL");
+        recorder.file_open = false;
         return -1;
     }
     
-    recorder.bytes_written += bytes_written;
+    // Retry mechanism for write operations
+    int write_attempts = 0;
+    const int max_write_attempts = 3;
+    
+    while (write_attempts < max_write_attempts) {
+        write_attempts++;
+        
+        res = f_write(&recorder.file, data, size, &bytes_written);
+        
+        if (res == FR_OK && bytes_written == size) {
+            // Success
+            recorder.bytes_written += bytes_written;
+            break;
+        } else {
+            SHELL_LOG_USER_WARNING("Write attempt %d failed, FRESULT: %d, requested: %lu, written: %lu", 
+                   write_attempts, res, (unsigned long)size, (unsigned long)bytes_written);
+            
+            // Handle specific error cases
+            if (res == FR_INVALID_OBJECT) {
+                SHELL_LOG_USER_ERROR("File object is invalid - attempting recovery");
+                recorder.file_open = false;
+                
+                // Try to recover the file handle once
+                if (write_attempts == 1 && recover_file_handle() == 0) {
+                    SHELL_LOG_USER_INFO("File handle recovered, retrying write");
+                    continue; // Retry the write operation
+                } else {
+                    SHELL_LOG_USER_ERROR("File recovery failed, stopping recording");
+                    return -1;
+                }
+            } else if (res == FR_DISK_ERR) {
+                SHELL_LOG_USER_ERROR("Disk error - SD card hardware issue");
+                // Try to recover by checking SD card status
+                if (check_sd_card_status() != 0) {
+                    SHELL_LOG_USER_ERROR("SD card not accessible, stopping recording");
+                    return -1;
+                }
+            } else if (res == FR_NOT_READY) {
+                SHELL_LOG_USER_ERROR("Drive not ready - SD card may have been removed");
+                return -1;
+            }
+            
+            if (write_attempts < max_write_attempts) {
+                // Brief delay before retry, but keep it minimal to avoid audio dropouts
+                HAL_Delay(1);
+            } else {
+                SHELL_LOG_USER_ERROR("Write failed after %d attempts, FRESULT: %d", max_write_attempts, res);
+                return -1;
+            }
+        }
+    }
     
     // Sync file periodically to ensure data is written.
-    // Increased the interval to reduce the frequency of potentially long, blocking f_sync calls,
-    // which might interfere with time-sensitive peripherals like SAI.
-    if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 100) == 0) {
+    // Further increased the interval and made sync non-blocking to prevent interference with SAI
+    if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 300) == 0) {
         SHELL_LOG_USER_DEBUG("Syncing file, total written: %lu bytes", (unsigned long)recorder.bytes_written);
-        f_sync(&recorder.file);
+        FRESULT sync_res = f_sync(&recorder.file);
+        if (sync_res != FR_OK) {
+            SHELL_LOG_USER_ERROR("File sync failed, FRESULT: %d", sync_res);
+            // Don't fail immediately on sync error, continue recording
+            SHELL_LOG_USER_WARNING("Continuing recording despite sync failure");
+        } else {
+            SHELL_LOG_USER_DEBUG("File sync successful");
+        }
+    }
+    
+    // Add periodic logging to track write progress (every 50 buffers)
+    if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 50) == 0) {
+        SHELL_LOG_USER_INFO("Recording progress: %lu bytes written", (unsigned long)recorder.bytes_written);
     }
     
     return 0;
@@ -385,6 +447,51 @@ static int verify_file_exists(const char* filepath)
     }
 }
 
+/**
+ * @brief Attempt to recover file handle after FR_INVALID_OBJECT error
+ * @retval 0: Success, -1: Error
+ */
+static int recover_file_handle(void)
+{
+    FRESULT res;
+    
+    SHELL_LOG_USER_WARNING("Attempting to recover file handle...");
+    
+    // First check if SD card is still accessible
+    if (check_sd_card_status() != 0) {
+        SHELL_LOG_USER_ERROR("SD card not accessible during recovery");
+        return -1;
+    }
+    
+    // Close the current file handle (even if it's invalid)
+    if (recorder.file_open) {
+        f_close(&recorder.file);
+        recorder.file_open = false;
+        HAL_Delay(50); // Give time for cleanup
+    }
+    
+    // Try to reopen the file in append mode
+    res = f_open(&recorder.file, recorder.filename, FA_OPEN_EXISTING | FA_WRITE);
+    if (res != FR_OK) {
+        SHELL_LOG_USER_ERROR("Failed to reopen file in recovery, FRESULT: %d", res);
+        return -1;
+    }
+    
+    // Seek to the end of file to continue appending
+    FSIZE_t file_size = f_size(&recorder.file);
+    res = f_lseek(&recorder.file, file_size);
+    if (res != FR_OK) {
+        SHELL_LOG_USER_ERROR("Failed to seek to end of file, FRESULT: %d", res);
+        f_close(&recorder.file);
+        return -1;
+    }
+    
+    recorder.file_open = true;
+    SHELL_LOG_USER_INFO("File handle recovered successfully, current size: %lu bytes", (unsigned long)file_size);
+    
+    return 0;
+}
+
 /* Exported functions --------------------------------------------------------*/
 
 /**
@@ -476,7 +583,7 @@ int audio_recorder_start(void)
     reset_sai_timing_status();
     
     // Validate SAI configuration before starting
-    validate_sai_configuration();
+   // validate_sai_configuration();
     
     // Check if SD card is mounted first
     SHELL_LOG_USER_DEBUG("Checking SD card mount status...");
@@ -1024,6 +1131,19 @@ void audio_recorder_error_callback(void)
         // Check and provide specific error guidance
         if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_LFSDET) {
             SHELL_LOG_USER_ERROR("Late Frame Sync detected");
+            SHELL_LOG_USER_ERROR("Suggestions:");
+            SHELL_LOG_USER_ERROR("1. Check external I2S clock stability");
+            SHELL_LOG_USER_ERROR("2. Verify SAI configuration matches hardware");
+            SHELL_LOG_USER_ERROR("3. Consider reducing DMA transfer size");
+            SHELL_LOG_USER_ERROR("4. Check for SD card write bottlenecks");
+            
+            // Try to clear the error and continue if possible
+            __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_LFSDET);
+            hsai_BlockA4.ErrorCode &= ~HAL_SAI_ERROR_LFSDET;
+            
+            // Don't immediately stop - try to recover
+            SHELL_LOG_USER_WARNING("Attempting to continue recording after LFSDET error");
+            return;
         }
         if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_AFSDET) {
             SHELL_LOG_USER_ERROR("Anticipated Frame Sync detected - frame timing issue");

@@ -46,10 +46,10 @@ void MX_SAI4_Init(void)
   hsai_BlockA4.Init.OutputDrive = SAI_OUTPUTDRIVE_ENABLE;
   /* Use a lower FIFO threshold to generate DMA requests earlier and reduce overrun risk.
    * FULL means DMA only triggered when FIFO full (for RX this can increase latency).
-   * 1/4 is a good balance for continuous TDM capture at modest bit clocks.
-   * For Late Frame Sync issues, use 1/4 threshold for better timing tolerance.
+   * 1QF (1/4 full) is a good balance for continuous TDM capture at modest bit clocks.
+   * For Late Frame Sync issues, use 1QF threshold for better timing tolerance.
    */
-  hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_FULL;
+  hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_1QF;
   hsai_BlockA4.Init.SynchroExt = SAI_SYNCEXT_DISABLE;
   hsai_BlockA4.Init.MonoStereoMode = SAI_STEREOMODE;
   hsai_BlockA4.Init.CompandingMode = SAI_NOCOMPANDING;
