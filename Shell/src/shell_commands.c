@@ -2783,7 +2783,7 @@ int cmd_audio_start(int argc, char *argv[])
     
     if (audio_recorder_start() == 0) {
         SHELL_LOG_USER_INFO("Audio recording started");
-        SHELL_LOG_USER_INFO("Format: %dch_%dbit_%dHz", 8, 16, 48000);
+        SHELL_LOG_USER_INFO("Format: %dch_%dbit_%dHz", AUDIO_CHANNELS, AUDIO_BIT_DEPTH, AUDIO_SAMPLE_RATE);
         SHELL_LOG_USER_INFO("File: %s", audio_recorder_get_filename());
     } else {
         SHELL_LOG_USER_ERROR("Failed to start audio recording");

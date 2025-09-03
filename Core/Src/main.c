@@ -337,10 +337,15 @@ void MPU_Config(void)
 
   /** Initializes and configures the Region and the memory to be protected
   */
+  /* Region7 repurposed for D3 SRAM (16KB @0x38000000) hosting non-cacheable DMA buffers (.dma_buffer) */
   MPU_InitStruct.Number = MPU_REGION_NUMBER7;
-  MPU_InitStruct.BaseAddress = 0x70000000;
+  MPU_InitStruct.BaseAddress = 0x38000000; /* RAM_D3 */
+  MPU_InitStruct.Size = MPU_REGION_SIZE_16KB;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE; /* allow code if ever placed, fine */
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE; /* avoid manual cache maintenance */
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);

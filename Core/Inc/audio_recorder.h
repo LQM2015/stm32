@@ -39,10 +39,10 @@ typedef struct {
 } AudioRecorder_t;
 
 /* Exported constants --------------------------------------------------------*/
-#define AUDIO_BUFFER_SIZE       (4096)  // Buffer size in bytes
+#define AUDIO_BUFFER_SIZE       (8192)  // Buffer size in bytes (multiple of frame size * 2).
 #define AUDIO_CHANNELS          8       // Number of channels
 #define AUDIO_BIT_DEPTH         16      // Bits per sample
-#define AUDIO_SAMPLE_RATE       48000   // Sample rate in Hz
+#define AUDIO_SAMPLE_RATE       16000   // Sample rate in Hz
 
 /* Exported macro ------------------------------------------------------------*/
 
@@ -50,7 +50,6 @@ typedef struct {
 int audio_recorder_init(void);
 int audio_recorder_start(void);
 int audio_recorder_stop(void);
-int audio_recorder_force_stop(void);
 AudioRecorderState_t audio_recorder_get_state(void);
 uint32_t audio_recorder_get_bytes_written(void);
 const char* audio_recorder_get_filename(void);

@@ -53,6 +53,14 @@ MEMORY
 /* Define output sections */
 SECTIONS
 {
+  /* Dedicated DMA accessible, cacheable buffer section placed in AXI SRAM (RAM_EXEC) */
+  .dma_buffer (NOLOAD):
+  {
+    . = ALIGN(32);        /* align to cache line for H7 (32 bytes) */
+    *(.dma_buffer)
+    . = ALIGN(32);
+  } >RAM_D3
+
   /* The startup code goes first into RAM_EXEC */
   .isr_vector :
   {

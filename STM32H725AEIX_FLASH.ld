@@ -162,6 +162,14 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM_D1
 
+  /* Dedicated DMA accessible buffer section placed in SRAM4 (RAM_D3) */
+  .dma_buffer (NOLOAD):
+  {
+    . = ALIGN(32);        /* align to cache line for H7 (32 bytes) */
+    *(.dma_buffer)
+    . = ALIGN(32);
+  } >RAM_D3
+
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
   {

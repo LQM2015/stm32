@@ -24,7 +24,14 @@
 
 /* Private variables ---------------------------------------------------------*/
 static AudioRecorder_t recorder = {0};
-static uint16_t audio_buffer[AUDIO_BUFFER_SIZE / 2]; // 16-bit samples
+/* DMA buffer: placed in .dma_buffer (linker -> D3 SRAM 0x38000000) with 32-byte alignment.
+ * Region configured via MPU (Region7) as non-cacheable & shareable, so no runtime cache maintenance required.
+ * Rationale: BDMA cannot access DTCM; non-cacheable removes need for Clean/Invalidate calls.
+ */
+#if defined ( __GNUC__ )
+__attribute__((section(".dma_buffer"), aligned(32)))
+#endif
+static uint16_t audio_buffer[AUDIO_BUFFER_SIZE / 2]; // 16-bit samples interleaved 8-channel TDM
 static volatile bool buffer_ready = false;
 static volatile bool half_buffer_ready = false;
 
@@ -41,6 +48,7 @@ static int write_audio_data(uint16_t* data, uint32_t size);
 static void debug_sai_status(void);
 static int check_sd_card_status(void);
 static void audio_process_thread(void *argument);
+static int verify_file_exists(const char* filepath);
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -166,6 +174,24 @@ static int check_sd_card_status(void)
     return 0;
 }
 
+/**
+ * @brief Verify if a file exists on SD card (only when file is not currently open)
+ * @param filepath: Path to check
+ * @retval 0: File exists, -1: File doesn't exist
+ */
+static int verify_file_exists(const char* filepath)
+{
+    FILINFO fno;
+    FRESULT res = f_stat(filepath, &fno);
+    if (res == FR_OK) {
+        SHELL_LOG_USER_INFO("File %s exists, size: %lu bytes", filepath, (unsigned long)fno.fsize);
+        return 0;
+    } else {
+        SHELL_LOG_USER_WARNING("File %s does not exist, FRESULT: %d", filepath, res);
+        return -1;
+    }
+}
+
 /* Exported functions --------------------------------------------------------*/
 
 /**
@@ -223,11 +249,27 @@ int audio_recorder_start(void)
     FRESULT res;
     
     SHELL_LOG_USER_INFO("Starting audio recording...");
-    SHELL_LOG_USER_DEBUG("Current state: %d", recorder.state);
+    SHELL_LOG_USER_DEBUG("Current state: %d (IDLE=%d, RECORDING=%d, STOPPING=%d, ERROR=%d)", 
+                         recorder.state, AUDIO_REC_IDLE, AUDIO_REC_RECORDING, AUDIO_REC_STOPPING, AUDIO_REC_ERROR);
+    
+    // 如果在错误状态，先重置到空闲状态
+    if (recorder.state == AUDIO_REC_ERROR) {
+        SHELL_LOG_USER_WARNING("Recorder in error state, resetting to idle");
+        recorder.state = AUDIO_REC_IDLE;
+        recorder.file_open = false;
+    }
+    
+    // 如果在停止状态，等待完成或强制重置
+    if (recorder.state == AUDIO_REC_STOPPING) {
+        SHELL_LOG_USER_WARNING("Recorder in stopping state, forcing reset to idle");
+        recorder.state = AUDIO_REC_IDLE;
+        recorder.file_open = false;
+    }
     
     if (recorder.state != AUDIO_REC_IDLE) {
-        SHELL_LOG_USER_ERROR("Cannot start recording, not in idle state");
-        return -1; // Already recording or in error state
+        SHELL_LOG_USER_ERROR("Cannot start recording, current state: %d (expected IDLE=%d)", 
+                             recorder.state, AUDIO_REC_IDLE);
+        return -1; // Already recording
     }
     
     // Check and fix SD card status first
@@ -337,6 +379,16 @@ int audio_recorder_start(void)
     
     // Open file for writing
     res = f_open(&recorder.file, full_path, FA_CREATE_ALWAYS | FA_WRITE);
+    SHELL_LOG_USER_INFO("f_open result: %d for path: %s", res, full_path);
+    
+    if (res == FR_OK) {
+        // 立即同步文件以确保创建
+        FRESULT sync_res = f_sync(&recorder.file);
+        SHELL_LOG_USER_INFO("f_sync after create result: %d", sync_res);
+        
+        // 简化：不再写入测试数据，避免扰乱实际PCM文件内容
+    }
+    
     if (res != FR_OK) {
         SHELL_LOG_USER_ERROR("Failed to open file in audio/ directory, FRESULT: %d", res);
         SHELL_LOG_USER_INFO("Trying to open file in root directory...");
@@ -392,6 +444,14 @@ int audio_recorder_start(void)
     recorder.file_open = true;
     recorder.bytes_written = 0;
     
+    // 验证文件是否真的创建成功 - 通过获取文件大小而不是重新打开
+    FSIZE_t current_size = f_size(&recorder.file);
+    SHELL_LOG_USER_INFO("File created successfully, current size: %lu bytes", (unsigned long)current_size);
+    
+    // 记录实际使用的文件路径
+    const char* actual_path = (res == FR_OK && strstr(full_path, "audio/")) ? full_path : recorder.filename;
+    SHELL_LOG_USER_INFO("File path being used: %s", actual_path);
+    
     // 确保状态正确设置为录音中
     recorder.state = AUDIO_REC_RECORDING;
     SHELL_LOG_USER_DEBUG("State set to RECORDING: %d", recorder.state);
@@ -400,6 +460,8 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_INFO("Starting SAI DMA reception, buffer size: %d", AUDIO_BUFFER_SIZE / 2);
     SHELL_LOG_USER_DEBUG("SAI handle: %p, buffer address: %p", &hsai_BlockA4, audio_buffer);
     SHELL_LOG_USER_DEBUG("SAI state before start: %d", HAL_SAI_GetState(&hsai_BlockA4));
+
+    /* Buffer is non-cacheable via MPU; no cache maintenance needed */
     
     HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4, (uint8_t*)audio_buffer, AUDIO_BUFFER_SIZE / 2);
     SHELL_LOG_USER_DEBUG("SAI_Receive_DMA result: %d", sai_result);
@@ -417,17 +479,9 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_DEBUG("SAI DMA started successfully");
     SHELL_LOG_USER_DEBUG("SAI state after successful start: %d", HAL_SAI_GetState(&hsai_BlockA4));
     
-    // 等待一小段时间后检查状态
-    HAL_Delay(100);
+    // Optional status check (enable by defining AUDIO_REC_VERBOSE)
+    HAL_Delay(20);
     debug_sai_status();
-    
-    // 检查是否有数据接收
-    SHELL_LOG_USER_DEBUG("Checking initial buffer content...");
-    int initial_non_zero = 0;
-    for (int i = 0; i < 20 && i < AUDIO_BUFFER_SIZE / 4; i++) {
-        if (audio_buffer[i] != 0) initial_non_zero++;
-    }
-    SHELL_LOG_USER_DEBUG("Initial non-zero samples in first 20: %d", initial_non_zero);
     
     // 最终确认状态设置
     if (recorder.state != AUDIO_REC_RECORDING) {
@@ -447,10 +501,21 @@ int audio_recorder_start(void)
 int audio_recorder_stop(void)
 {
     SHELL_LOG_USER_INFO("Stopping audio recording...");
-    SHELL_LOG_USER_DEBUG("Current state: %d", recorder.state);
+    SHELL_LOG_USER_DEBUG("Current state: %d (IDLE=%d, RECORDING=%d, STOPPING=%d, ERROR=%d)", 
+                         recorder.state, AUDIO_REC_IDLE, AUDIO_REC_RECORDING, AUDIO_REC_STOPPING, AUDIO_REC_ERROR);
     
-    if (recorder.state != AUDIO_REC_RECORDING) {
-        SHELL_LOG_USER_ERROR("Cannot stop recording, not in recording state");
+    if (recorder.state == AUDIO_REC_IDLE) {
+        SHELL_LOG_USER_WARNING("No active recording to stop (already in idle state)");
+        return 0; // 不是错误，只是没有录音在进行
+    }
+    
+    if (recorder.state == AUDIO_REC_STOPPING) {
+        SHELL_LOG_USER_WARNING("Recording is already stopping");
+        return 0; // 已经在停止过程中
+    }
+    
+    if (recorder.state != AUDIO_REC_RECORDING && recorder.state != AUDIO_REC_ERROR) {
+        SHELL_LOG_USER_ERROR("Cannot stop recording, unexpected state: %d", recorder.state);
         return -1;
     }
     
@@ -561,15 +626,30 @@ int audio_recorder_stop(void)
         if (close_result != FR_OK) {
             SHELL_LOG_USER_ERROR("Failed to close file after %d attempts, FRESULT: %d", max_close_attempts, close_result);
             overall_result = -1;
+        } else {
+            SHELL_LOG_USER_INFO("File handle closed successfully");
         }
         
         recorder.file_open = false;
+        
+        // 强制文件系统同步，确保所有缓存数据写入SD卡
+        SHELL_LOG_USER_INFO("Forcing filesystem sync...");
+        FRESULT sync_fs_result = f_sync(NULL); // 同步整个文件系统
+        SHELL_LOG_USER_INFO("Filesystem sync result: %d", sync_fs_result);
     }
     
     // Always transition to idle state, even if there were errors
     recorder.state = AUDIO_REC_IDLE;
     SHELL_LOG_USER_INFO("Recording stopped, total bytes written: %lu", (unsigned long)recorder.bytes_written);
     SHELL_LOG_USER_DEBUG("State changed to idle: %d", recorder.state);
+    
+    // 现在文件已关闭，可以安全验证文件是否存在
+    SHELL_LOG_USER_INFO("Verifying recorded file exists on SD card...");
+    if (verify_file_exists(recorder.filename) == 0) {
+        SHELL_LOG_USER_INFO("File verification successful - recorded file found on SD card");
+    } else {
+        SHELL_LOG_USER_ERROR("File verification failed - recorded file not found on SD card!");
+    }
     
     if (overall_result == 0) {
         SHELL_LOG_USER_INFO("Audio recording stopped successfully");
@@ -679,9 +759,7 @@ void audio_recorder_process(void)
 
     if (half_buffer_ready) {
         half_buffer_ready = false;
-        // Invalidate D-Cache for the first half of the buffer before CPU access
-        // This is crucial for STM32H7 devices to ensure cache coherency with DMA
-        SCB_InvalidateDCache_by_Addr((uint32_t*)&audio_buffer[0], AUDIO_BUFFER_SIZE / 2);
+    // Non-cacheable region: no invalidate required
         if (write_audio_data(&audio_buffer[0], AUDIO_BUFFER_SIZE / 2) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write first half of buffer, stopping recording.");
             audio_recorder_stop();
@@ -691,8 +769,7 @@ void audio_recorder_process(void)
 
     if (buffer_ready) {
         buffer_ready = false;
-        // Invalidate D-Cache for the second half of the buffer before CPU access
-        SCB_InvalidateDCache_by_Addr((uint32_t*)&audio_buffer[AUDIO_BUFFER_SIZE / 4], AUDIO_BUFFER_SIZE / 2);
+    // Non-cacheable region: no invalidate required
         if (write_audio_data(&audio_buffer[AUDIO_BUFFER_SIZE / 4], AUDIO_BUFFER_SIZE / 2) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write second half of buffer, stopping recording.");
             audio_recorder_stop();
@@ -708,6 +785,8 @@ void audio_recorder_process(void)
  */
 void audio_recorder_rx_complete_callback(void)
 {
+    /* Keep callbacks lightweight: no debug log unless verbose */
+    SHELL_LOG_USER_DEBUG("SAI RX complete");
     if (recorder.state == AUDIO_REC_RECORDING) {
         buffer_ready = true;
         osSemaphoreRelease(audio_data_sem);
@@ -719,6 +798,8 @@ void audio_recorder_rx_complete_callback(void)
  */
 void audio_recorder_rx_half_complete_callback(void)
 {
+    /* Half complete */
+    SHELL_LOG_USER_DEBUG("SAI RX half");
     if (recorder.state == AUDIO_REC_RECORDING) {
         half_buffer_ready = true;
         osSemaphoreRelease(audio_data_sem);
@@ -730,8 +811,7 @@ void audio_recorder_rx_half_complete_callback(void)
  */
 void audio_recorder_error_callback(void)
 {
-    SHELL_LOG_USER_ERROR("SAI error callback triggered");
-    SHELL_LOG_USER_DEBUG("Current state: %d", recorder.state);
+    SHELL_LOG_USER_ERROR("SAI error callback (state=%d)", recorder.state);
     
     if (recorder.state == AUDIO_REC_RECORDING) {
         SHELL_LOG_USER_ERROR("SAI error during recording, stopping...");
