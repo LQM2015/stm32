@@ -27,11 +27,12 @@ static AudioRecorder_t recorder = {0};
 /* DMA buffer: placed in .dma_buffer (linker -> D3 SRAM 0x38000000) with 32-byte alignment.
  * Region configured via MPU (Region7) as non-cacheable & shareable, so no runtime cache maintenance required.
  * Rationale: BDMA cannot access DTCM; non-cacheable removes need for Clean/Invalidate calls.
+ * Buffer size is calculated based on AUDIO_CHANNELS and AUDIO_BUFFER_FRAMES configuration.
  */
 #if defined ( __GNUC__ )
 __attribute__((section(".dma_buffer"), aligned(32)))
 #endif
-static uint16_t audio_buffer[AUDIO_BUFFER_SIZE / 2]; // 16-bit samples interleaved 8-channel TDM
+static uint16_t audio_buffer[AUDIO_BUFFER_SAMPLES]; // 16-bit samples interleaved multi-channel TDM
 static volatile bool buffer_ready = false;
 static volatile bool half_buffer_ready = false;
 
@@ -151,14 +152,14 @@ static int write_audio_data(uint16_t* data, uint32_t size)
     // Further increased the interval and made sync non-blocking to prevent interference with SAI
     if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 300) == 0) {
         SHELL_LOG_USER_DEBUG("Syncing file, total written: %lu bytes", (unsigned long)recorder.bytes_written);
-        FRESULT sync_res = f_sync(&recorder.file);
-        if (sync_res != FR_OK) {
-            SHELL_LOG_USER_ERROR("File sync failed, FRESULT: %d", sync_res);
-            // Don't fail immediately on sync error, continue recording
-            SHELL_LOG_USER_WARNING("Continuing recording despite sync failure");
-        } else {
-            SHELL_LOG_USER_DEBUG("File sync successful");
-        }
+        //FRESULT sync_res = f_sync(&recorder.file);
+        // if (sync_res != FR_OK) {
+        //     SHELL_LOG_USER_ERROR("File sync failed, FRESULT: %d", sync_res);
+        //     // Don't fail immediately on sync error, continue recording
+        //     SHELL_LOG_USER_WARNING("Continuing recording despite sync failure");
+        // } else {
+        //     SHELL_LOG_USER_DEBUG("File sync successful");
+        // }
     }
     
     // Add periodic logging to track write progress (every 50 buffers)
@@ -332,7 +333,7 @@ static void reset_sai_timing_status(void)
 }
 
 /**
- * @brief Validate SAI configuration to ensure it's properly set to slave mode
+ * @brief Validate SAI configuration to ensure it matches the configured audio parameters
  */
 static void validate_sai_configuration(void)
 {
@@ -342,6 +343,8 @@ static void validate_sai_configuration(void)
     uint32_t sai_slotr = hsai_BlockA4.Instance->SLOTR;
     
     SHELL_LOG_USER_INFO("=== SAI Configuration Validation ===");
+    SHELL_LOG_USER_INFO("Current audio config: %d channels, %d-bit, %d Hz", 
+                         AUDIO_CHANNELS, AUDIO_BIT_DEPTH, AUDIO_SAMPLE_RATE);
     
     // Check if SAI is in slave mode (bit 1:0 should be 00 for slave RX)
     uint32_t mode = sai_cr1 & SAI_xCR1_MODE;
@@ -359,20 +362,24 @@ static void validate_sai_configuration(void)
     uint32_t fifo_th = (sai_cr2 & SAI_xCR2_FTH) >> SAI_xCR2_FTH_Pos;
     SHELL_LOG_USER_INFO("FIFO Threshold: %ld (0=empty, 1=1/4, 2=1/2, 3=3/4, 4=full)", fifo_th);
     
-    // Check frame length (should be 64 for 4ch*16bit)
+    // Check frame length (calculated based on configuration)
+    uint32_t expected_frame_len = SAI_FRAME_LENGTH;
     uint32_t frame_len = ((sai_frcr & SAI_xFRCR_FRL) >> SAI_xFRCR_FRL_Pos) + 1;
-    if (frame_len != 64) {
-        SHELL_LOG_USER_WARNING("Frame length is %ld, expected 64 for 4ch*16bit", frame_len);
+    if (frame_len != expected_frame_len) {
+        SHELL_LOG_USER_WARNING("Frame length is %ld, expected %ld for %dch*%dbit", 
+                               frame_len, expected_frame_len, AUDIO_CHANNELS, AUDIO_BIT_DEPTH);
     } else {
         SHELL_LOG_USER_INFO("OK: Frame length is %ld", frame_len);
     }
     
-    // Check active slots
+    // Check active slots (based on channel configuration)
     uint32_t slot_active = (sai_slotr & SAI_xSLOTR_SLOTEN) >> SAI_xSLOTR_SLOTEN_Pos;
-    if (slot_active != 0x0F) {
-        SHELL_LOG_USER_WARNING("Active slots: 0x%02lX, expected 0x0F for 4 channels", slot_active);
+    uint32_t expected_slot_mask = SAI_SLOT_ACTIVE_MASK;
+    if (slot_active != expected_slot_mask) {
+        SHELL_LOG_USER_WARNING("Active slots: 0x%02lX, expected 0x%02lX for %d channels", 
+                               slot_active, expected_slot_mask, AUDIO_CHANNELS);
     } else {
-        SHELL_LOG_USER_INFO("OK: All 4 slots active (0x%02lX)", slot_active);
+        SHELL_LOG_USER_INFO("OK: All %d slots active (0x%02lX)", AUDIO_CHANNELS, slot_active);
     }
     
     SHELL_LOG_USER_INFO("=== Configuration Validation Complete ===");
@@ -583,7 +590,7 @@ int audio_recorder_start(void)
     reset_sai_timing_status();
     
     // Validate SAI configuration before starting
-   // validate_sai_configuration();
+    validate_sai_configuration();
     
     // Check if SD card is mounted first
     SHELL_LOG_USER_DEBUG("Checking SD card mount status...");
@@ -763,13 +770,14 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_DEBUG("State set to RECORDING: %d", recorder.state);
     
     // Start SAI DMA reception
-    SHELL_LOG_USER_INFO("Starting SAI DMA reception, buffer size: %d", AUDIO_BUFFER_SIZE / 2);
+    SHELL_LOG_USER_INFO("Starting SAI DMA reception, buffer size: %d samples (%d bytes)", 
+                        AUDIO_BUFFER_SAMPLES, AUDIO_BUFFER_SIZE);
     SHELL_LOG_USER_DEBUG("SAI handle: %p, buffer address: %p", &hsai_BlockA4, audio_buffer);
     SHELL_LOG_USER_DEBUG("SAI state before start: %d", HAL_SAI_GetState(&hsai_BlockA4));
 
     /* Buffer is non-cacheable via MPU; no cache maintenance needed */
     
-    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4, (uint8_t*)audio_buffer, AUDIO_BUFFER_SIZE / 2);
+    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4, (uint8_t*)audio_buffer, AUDIO_BUFFER_SAMPLES);
     SHELL_LOG_USER_DEBUG("SAI_Receive_DMA result: %d", sai_result);
     
     if (sai_result != HAL_OK) {
@@ -1016,7 +1024,7 @@ void audio_recorder_debug_status(void)
         
         // 检查当前缓冲区内容
         int current_non_zero = 0;
-        for (int i = 0; i < 10 && i < AUDIO_BUFFER_SIZE / 4; i++) {
+        for (int i = 0; i < 10 && i < AUDIO_BUFFER_SAMPLES; i++) {
             if (audio_buffer[i] != 0) current_non_zero++;
         }
         SHELL_LOG_USER_INFO("Current non-zero samples in first 10: %d", current_non_zero);
@@ -1068,8 +1076,9 @@ void audio_recorder_process(void)
 
     if (half_buffer_ready) {
         half_buffer_ready = false;
-    // Non-cacheable region: no invalidate required
-        if (write_audio_data(&audio_buffer[0], AUDIO_BUFFER_SIZE / 2) != 0) {
+        // Non-cacheable region: no invalidate required
+        // Write first half of the buffer
+        if (write_audio_data(&audio_buffer[0], AUDIO_HALF_BUFFER_SIZE) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write first half of buffer, stopping recording.");
             audio_recorder_stop();
             recorder.state = AUDIO_REC_ERROR;
@@ -1078,8 +1087,9 @@ void audio_recorder_process(void)
 
     if (buffer_ready) {
         buffer_ready = false;
-    // Non-cacheable region: no invalidate required
-        if (write_audio_data(&audio_buffer[AUDIO_BUFFER_SIZE / 4], AUDIO_BUFFER_SIZE / 2) != 0) {
+        // Non-cacheable region: no invalidate required
+        // Write second half of the buffer
+        if (write_audio_data(&audio_buffer[AUDIO_BUFFER_SAMPLES / 2], AUDIO_HALF_BUFFER_SIZE) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write second half of buffer, stopping recording.");
             audio_recorder_stop();
             recorder.state = AUDIO_REC_ERROR;

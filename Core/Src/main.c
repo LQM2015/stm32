@@ -118,27 +118,24 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_BDMA_Init();
-  MX_SAI4_Init();
   MX_SDMMC1_SD_Init();
+  MX_FATFS_Init();  
   MX_USART3_UART_Init();
-  MX_FATFS_Init();
+  // 初始化日志系统
+  shellLogInit();
+  // 初始化Shell
+  shell_init();
+  // 输出Shell初始化日志
+  shell_init_log_output();  
+  MX_SAI4_Init();
+
   MX_OCTOSPI1_Init();
   MX_OCTOSPI2_Init();
   MX_IWDG1_Init();
   /* USER CODE BEGIN 2 */
   
   
-  // 打印系统信息 - 已禁用
-  // debug_print_system_info();
-  
-  // 初始化日志系统
-  shellLogInit();
-  
-  // 初始化Shell
-  shell_init();
-  
-  // 输出Shell初始化日志
-  shell_init_log_output();
+   SHELL_LOG_SYS_INFO("System Clock: %lu Hz", HAL_RCC_GetSysClockFreq());
   
   // 初始化音频录制器
   if (audio_recorder_init() == 0) {

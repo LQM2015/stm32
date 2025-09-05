@@ -39,10 +39,32 @@ typedef struct {
 } AudioRecorder_t;
 
 /* Exported constants --------------------------------------------------------*/
-#define AUDIO_BUFFER_SIZE       (8192)  // Buffer size in bytes (increased for better SD card efficiency), reduced for 4ch
-#define AUDIO_CHANNELS          4       // Number of channels (changed from 8 to 4)
-#define AUDIO_BIT_DEPTH         16      // Bits per sample
-#define AUDIO_SAMPLE_RATE       16000   // Sample rate in Hz
+#define AUDIO_CHANNELS          8       // Number of channels (configurable: 4 or 8)
+#define AUDIO_BIT_DEPTH         16      // Bits per sample (fixed at 16-bit)
+#define AUDIO_SAMPLE_RATE       16000   // Sample rate in Hz (configurable)
+
+/* Calculated constants based on audio configuration */
+#define AUDIO_FRAME_SIZE        (AUDIO_CHANNELS * (AUDIO_BIT_DEPTH / 8))  // Bytes per frame
+#define AUDIO_BUFFER_FRAMES     (512)   // Number of frames per buffer (configurable)
+#define AUDIO_BUFFER_SIZE       (AUDIO_BUFFER_FRAMES * AUDIO_FRAME_SIZE)  // Total buffer size in bytes
+
+/* DMA buffer management constants */
+#define AUDIO_HALF_BUFFER_SIZE  (AUDIO_BUFFER_SIZE / 2)                   // Half buffer size in bytes
+#define AUDIO_HALF_BUFFER_FRAMES (AUDIO_BUFFER_FRAMES / 2)                // Frames per half buffer
+#define AUDIO_BUFFER_SAMPLES    (AUDIO_BUFFER_SIZE / 2)                   // Total 16-bit samples in buffer
+
+/* SAI configuration constants */
+#define SAI_FRAME_LENGTH        (AUDIO_CHANNELS * AUDIO_BIT_DEPTH)        // Total frame length in bits
+#define SAI_SLOT_ACTIVE_MASK    ((1U << AUDIO_CHANNELS) - 1)             // Active slot mask based on channel count
+
+/* Validation checks */
+#if (AUDIO_CHANNELS != 4) && (AUDIO_CHANNELS != 8)
+#error "AUDIO_CHANNELS must be either 4 or 8"
+#endif
+
+#if (AUDIO_BIT_DEPTH != 16)
+#error "Only 16-bit audio is currently supported"
+#endif
 
 /* Exported macro ------------------------------------------------------------*/
 

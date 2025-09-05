@@ -20,6 +20,8 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "sai.h"
+#include "audio_recorder.h"
+#include "shell_log.h"
 
 /* USER CODE BEGIN 0 */
 
@@ -54,24 +56,31 @@ void MX_SAI4_Init(void)
   hsai_BlockA4.Init.MonoStereoMode = SAI_STEREOMODE;
   hsai_BlockA4.Init.CompandingMode = SAI_NOCOMPANDING;
   hsai_BlockA4.Init.TriState = SAI_OUTPUT_NOTRELEASED;
-  hsai_BlockA4.SlotInit.SlotActive = 0x0F; /* 4 LSB bits => 4 slots active (slots 0-3) */
-  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_PCM_SHORT, SAI_PROTOCOL_DATASIZE_16BIT, 4) != HAL_OK)
+  
+  /* Configure active slots based on channel count from audio_recorder.h */
+  hsai_BlockA4.SlotInit.SlotActive = SAI_SLOT_ACTIVE_MASK;
+  
+  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_PCM_SHORT, SAI_PROTOCOL_DATASIZE_16BIT, AUDIO_CHANNELS) != HAL_OK)
   {
     Error_Handler();
   }
+  SHELL_LOG_USER_INFO("SAI initialized: %02x SlotActive %d channels, 16-bit, PCM Short", SAI_SLOT_ACTIVE_MASK, AUDIO_CHANNELS);
   /* USER CODE BEGIN SAI4_Init 2 */
   /*
-   * 4-channel TDM configuration:
-   * BCLK ≈ 1.024 MHz, FS = 16 kHz, 4 channels, 16-bit each.
+   * Multi-channel TDM configuration (configurable via audio_recorder.h):
+   * Current config: AUDIO_CHANNELS channels, AUDIO_BIT_DEPTH-bit, AUDIO_SAMPLE_RATE Hz
+   * 
+   * For 4-channel: BCLK ≈ 1.024 MHz, FS = 16 kHz, 4 channels, 16-bit each.
    * Formula: 16k * 4 * 16 = 1.024 MHz => Frame length 64 bits.
-   * Using HAL_SAI_InitProtocol(SAI_PCM_SHORT, 16bit, 4 slots) yields:
-   *   FrameLength = 64, ActiveFrameLength = 1, FSOffset = FIRSTBIT, SlotSize = DATASIZE(16), SlotNumber=4.
-   *
-   * Active slots: slots 0-3 for 4 channels. SlotActive mask = 0x0F.
-   *   hsai_BlockA4.SlotInit.SlotActive = (SAI_SLOTACTIVE_0 | SAI_SLOTACTIVE_1 | SAI_SLOTACTIVE_2 | SAI_SLOTACTIVE_3);
+   * 
+   * For 8-channel: BCLK ≈ 2.048 MHz, FS = 16 kHz, 8 channels, 16-bit each.
+   * Formula: 16k * 8 * 16 = 2.048 MHz => Frame length 128 bits.
+   * 
+   * HAL_SAI_InitProtocol(SAI_PCM_SHORT, 16bit, AUDIO_CHANNELS) automatically configures:
+   *   FrameLength, ActiveFrameLength, FSOffset, SlotSize, SlotNumber
+   * 
+   * Active slots are set via SAI_SLOT_ACTIVE_MASK macro based on AUDIO_CHANNELS
    */
-  /* Ensure slot active mask explicitly set for 4 channels */
-  //hsai_BlockA4.SlotInit.SlotActive = 0x0F; /* 4 LSB bits => 4 slots active */
 
   /* USER CODE END SAI4_Init 2 */
 
