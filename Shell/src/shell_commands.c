@@ -18,10 +18,37 @@
 #include "task.h"
 #include "cmsis_os.h"
 #include "fatfs.h"
+#include "fs_manager.h"
 #include "audio_recorder.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+/* =================================================================== */
+/* File System Helper Functions                                       */
+/* =================================================================== */
+
+/**
+ * @brief 检查文件系统是否可用（使用全局管理器）
+ * @retval 0: 可用, -1: 不可用
+ */
+static int check_filesystem_ready(void)
+{
+    if (fs_manager_check_status() != 0) {
+        SHELL_LOG_FATFS_ERROR("File system not ready");
+        SHELL_LOG_FATFS_ERROR("Error: SD card file system is not accessible");
+        SHELL_LOG_FATFS_ERROR("Please check if SD card is inserted and formatted");
+        return -1;
+    }
+    return 0;
+}
+
+/* 
+ * 兼容性宏定义：将原有的f_mount调用重定向到全局文件系统管理器
+ * 这样可以最小化代码修改，同时实现统一管理
+ */
+#define MOUNT_FILESYSTEM() check_filesystem_ready()
+#define UNMOUNT_FILESYSTEM() do { /* 不需要卸载，由全局管理器管理 */ } while(0)
 
 /* =================================================================== */
 /* Global Current Directory Management                                */
@@ -77,12 +104,10 @@ void normalize_path(char* path)
     // 简化路径处理 - 就地处理，不使用大量栈空间
     char *src = path;
     char *dst = path;
-    char *last_slash = path;
     
     // 确保以'/'开头
     if (*src != '/') {
         *dst++ = '/';
-        last_slash = dst - 1;
     }
     
     while (*src) {
@@ -640,23 +665,18 @@ int cmd_sdwrite(int argc, char *argv[])
     SHELL_LOG_FATFS_INFO("Starting SD card file write operation");
     SHELL_LOG_FATFS_INFO("Target file: %s, Content length: %d", filename, strlen(content));
     
-    // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card filesystem: %d", fr);
-        SHELL_LOG_FATFS_ERROR("Error: Cannot mount SD card (Error: %d)", fr);
-        SHELL_LOG_FATFS_ERROR("Please check if SD card is inserted and formatted");
+    // 检查文件系统是否可用
+    if (check_filesystem_ready() != 0) {
         return -1;
     }
     
-    SHELL_LOG_FATFS_DEBUG("SD card filesystem mounted successfully");
+    SHELL_LOG_FATFS_DEBUG("SD card filesystem is ready");
     
     // 打开文件进行写入（如果不存在则创建）
-    fr = f_open(&USERFile, filename, FA_CREATE_ALWAYS | FA_WRITE);
+    FRESULT fr = f_open(&USERFile, filename, FA_CREATE_ALWAYS | FA_WRITE);
     if (fr != FR_OK) {
         SHELL_LOG_FATFS_ERROR("Failed to create/open file %s: %d", filename, fr);
         SHELL_LOG_FATFS_ERROR("Error: Cannot create file '%s' (Error: %d)", filename, fr);
-        f_mount(NULL, USERPath, 0);  // 卸载文件系统
         return -1;
     }
     
@@ -669,7 +689,6 @@ int cmd_sdwrite(int argc, char *argv[])
         SHELL_LOG_FATFS_ERROR("Failed to write to file %s: %d", filename, fr);
         SHELL_LOG_FATFS_ERROR("Error: Write operation failed (Error: %d)", fr);
         f_close(&USERFile);
-        f_mount(NULL, USERPath, 0);
         return -1;
     }
     
@@ -694,9 +713,6 @@ int cmd_sdwrite(int argc, char *argv[])
         SHELL_LOG_FATFS_WARNING("Failed to close file %s: %d", filename, fr);
         SHELL_LOG_FATFS_WARNING("Warning: File close failed");
     }
-    
-    // 卸载文件系统
-    f_mount(NULL, USERPath, 0);
     
     SHELL_LOG_FATFS_INFO("File operation completed successfully");
     SHELL_LOG_FATFS_INFO("Success: File '%s' created with %d bytes", filename, bytes_written);
@@ -724,21 +740,19 @@ int cmd_sdread(int argc, char *argv[])
     
     SHELL_LOG_FATFS_INFO("Starting SD card file read operation");
     SHELL_LOG_FATFS_INFO("Target file: %s", filename);
-    
-    // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card filesystem: %d", fr);
-        SHELL_LOG_FATFS_ERROR("Error: Cannot mount SD card (Error: %d)", fr);
+
+    // 检查文件系统是否可用
+    if (check_filesystem_ready() != 0) {
         return -1;
     }
     
+    SHELL_LOG_FATFS_DEBUG("SD card filesystem is ready");
+    
     // 打开文件进行读取
-    fr = f_open(&USERFile, filename, FA_READ);
+    FRESULT fr = f_open(&USERFile, filename, FA_READ);
     if (fr != FR_OK) {
         SHELL_LOG_FATFS_ERROR("Failed to open file %s: %d", filename, fr);
         SHELL_LOG_FATFS_ERROR("Error: Cannot open file '%s' (Error: %d)", filename, fr);
-        f_mount(NULL, USERPath, 0);
         return -1;
     }
     
@@ -758,7 +772,6 @@ int cmd_sdread(int argc, char *argv[])
         SHELL_LOG_FATFS_ERROR("Failed to allocate %lu bytes for file buffer", file_size + 1);
         SHELL_LOG_FATFS_ERROR("Error: Memory allocation failed");
         f_close(&USERFile);
-        f_mount(NULL, USERPath, 0);
         return -1;
     }
     
@@ -770,7 +783,6 @@ int cmd_sdread(int argc, char *argv[])
         SHELL_LOG_FATFS_ERROR("Error: Read operation failed (Error: %d)", fr);
         vPortFree(buffer);
         f_close(&USERFile);
-        f_mount(NULL, USERPath, 0);
         return -1;
     }
     
@@ -778,7 +790,6 @@ int cmd_sdread(int argc, char *argv[])
     
     // 关闭文件
     f_close(&USERFile);
-    f_mount(NULL, USERPath, 0);
     
     SHELL_LOG_FATFS_INFO("File read completed successfully");
     SHELL_LOG_FATFS_INFO("=== File Content (%d bytes) ===", bytes_read);
@@ -800,7 +811,7 @@ int cmd_sdls(int argc, char *argv[])
 {
     Shell *shell = shellGetCurrent();
     if (!shell) return -1;
-    
+
     char *path = "/";  // 默认根目录
     if (argc >= 2) {
         path = argv[1];
@@ -809,22 +820,17 @@ int cmd_sdls(int argc, char *argv[])
     SHELL_LOG_FATFS_INFO("Listing SD card directory: %s", path);
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card filesystem: %d", fr);
-        SHELL_LOG_FATFS_ERROR("Error: Cannot mount SD card (Error: %d)", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     DIR dir;
     FILINFO fno;
     
     // 打开目录
-    fr = f_opendir(&dir, path);
+    FRESULT fr = f_opendir(&dir, path);
     if (fr != FR_OK) {
         SHELL_LOG_FATFS_ERROR("Failed to open directory %s: %d", path, fr);
         SHELL_LOG_FATFS_ERROR("Error: Cannot open directory '%s' (Error: %d)", path, fr);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -868,7 +874,7 @@ int cmd_sdls(int argc, char *argv[])
     }
     
     f_closedir(&dir);
-    f_mount(NULL, USERPath, 0);
+    
     
     SHELL_LOG_FATFS_DEBUG("Directory listing completed successfully");
     
@@ -897,20 +903,15 @@ int cmd_sdrm(int argc, char *argv[])
     SHELL_LOG_FATFS_WARNING("Attempting to delete file: %s", filename);
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card filesystem: %d", fr);
-        SHELL_LOG_FATFS_ERROR("Error: Cannot mount SD card (Error: %d)", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     // 检查文件是否存在
     FILINFO fno;
-    fr = f_stat(filename, &fno);
+    FRESULT fr = f_stat(filename, &fno);
     if (fr != FR_OK) {
         SHELL_LOG_FATFS_ERROR("File %s not found or inaccessible: %d", filename, fr);
         SHELL_LOG_FATFS_ERROR("Error: File '%s' not found (Error: %d)", filename, fr);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -921,11 +922,11 @@ int cmd_sdrm(int argc, char *argv[])
     if (fr != FR_OK) {
         SHELL_LOG_FATFS_ERROR("Failed to delete file %s: %d", filename, fr);
         SHELL_LOG_FATFS_ERROR("Error: Cannot delete file '%s' (Error: %d)", filename, fr);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     SHELL_LOG_FATFS_INFO("File deletion completed successfully");
     SHELL_LOG_FATFS_INFO("Success: File '%s' deleted", filename);
@@ -985,20 +986,15 @@ int cmd_ls(int argc, char *argv[])
         // 相对路径
         snprintf(full_path, 512, "%s%s", get_current_directory(), input_path);
     }
-    
+
     // 标准化路径
     normalize_path(full_path);
-    
+
     SHELL_LOG_FATFS_DEBUG("ls command: path=%s, show_all=%d, long_format=%d", full_path, show_all, long_format);
-    
+
     // 安全地挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        vPortFree(full_path);
-        return -1;
-    }
-    
+    if (check_filesystem_ready() != 0) { return -1; }
+
     DIR dir;
     FILINFO fno;
     
@@ -1006,10 +1002,10 @@ int cmd_ls(int argc, char *argv[])
     memset(&fno, 0, sizeof(fno));
     
     // 打开目录
-    fr = f_opendir(&dir, full_path);
+    FRESULT fr = f_opendir(&dir, full_path);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("ls: cannot access '%s': No such directory (error %d)", full_path, fr);
-        f_mount(NULL, USERPath, 0);
+        
         vPortFree(full_path);
         return -1;
     }
@@ -1063,9 +1059,8 @@ int cmd_ls(int argc, char *argv[])
     }
     
     f_closedir(&dir);
-    f_mount(NULL, USERPath, 0);
+
     vPortFree(full_path);  // 释放分配的内存
-    
     return 0;
 }
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
@@ -1076,6 +1071,8 @@ int cmd_mkdir(int argc, char *argv[])
 {
     Shell *shell = shellGetCurrent();
     if (!shell) return -1;
+    
+    FRESULT fr;
     
     if (argc < 2) {
         SHELL_LOG_USER_ERROR("mkdir: missing operand");
@@ -1093,11 +1090,7 @@ int cmd_mkdir(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     int success_count = 0;
     
@@ -1143,7 +1136,7 @@ int cmd_mkdir(int argc, char *argv[])
         success_count++;
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return (success_count > 0) ? 0 : -1;
 }
@@ -1180,11 +1173,7 @@ int cmd_rm(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     int success_count = 0;
     
@@ -1192,7 +1181,7 @@ int cmd_rm(int argc, char *argv[])
         char *target = argv[i];
         
         FILINFO fno;
-        fr = f_stat(target, &fno);
+        FRESULT fr = f_stat(target, &fno);
         if (fr != FR_OK) {
             if (!force) {
                 SHELL_LOG_USER_ERROR("rm: cannot remove '%s': No such file or directory", target);
@@ -1222,7 +1211,7 @@ int cmd_rm(int argc, char *argv[])
         }
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return (success_count > 0) ? 0 : -1;
 }
@@ -1242,11 +1231,7 @@ int cmd_touch(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     int success_count = 0;
     
@@ -1254,10 +1239,10 @@ int cmd_touch(int argc, char *argv[])
         char *filename = argv[i];
         
         // 尝试打开文件，如果不存在则创建
-        fr = f_open(&USERFile, filename, FA_OPEN_EXISTING | FA_WRITE);
+        FRESULT fr = f_open(&USERFile, filename, FA_OPEN_EXISTING | FA_WRITE);
         if (fr == FR_NO_FILE) {
             // 文件不存在，创建新文件
-            fr = f_open(&USERFile, filename, FA_CREATE_NEW | FA_WRITE);
+            FRESULT fr = f_open(&USERFile, filename, FA_CREATE_NEW | FA_WRITE);
             if (fr == FR_OK) {
                 SHELL_LOG_FATFS_INFO("Created: %s", filename);
                 f_close(&USERFile);
@@ -1276,7 +1261,7 @@ int cmd_touch(int argc, char *argv[])
         }
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return (success_count > 0) ? 0 : -1;
 }
@@ -1310,29 +1295,25 @@ int cmd_cp(int argc, char *argv[])
     char *dest = argv[dst_idx];
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     // 检查源文件
     FILINFO src_info;
-    fr = f_stat(source, &src_info);
+    FRESULT fr = f_stat(source, &src_info);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("cp: cannot stat '%s': No such file or directory", source);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
     if (src_info.fattrib & AM_DIR) {
         if (!recursive) {
             SHELL_LOG_USER_ERROR("cp: -r not specified; omitting directory '%s'", source);
-            f_mount(NULL, USERPath, 0);
+            
             return -1;
         }
         SHELL_LOG_USER_ERROR("cp: directory copying not fully implemented");
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1341,7 +1322,7 @@ int cmd_cp(int argc, char *argv[])
     fr = f_open(&src_file, source, FA_READ);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("cp: cannot open '%s' for reading: %d", source, fr);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1351,7 +1332,7 @@ int cmd_cp(int argc, char *argv[])
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("cp: cannot create '%s': %d", dest, fr);
         f_close(&src_file);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1375,7 +1356,7 @@ int cmd_cp(int argc, char *argv[])
     
     f_close(&src_file);
     f_close(&dst_file);
-    f_mount(NULL, USERPath, 0);
+    
     
     if (fr == FR_OK) {
         SHELL_LOG_FATFS_INFO("Copied %lu bytes from '%s' to '%s'", total_copied, source, dest);
@@ -1404,18 +1385,14 @@ int cmd_mv(int argc, char *argv[])
     char *dest = argv[2];
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     // 检查源文件是否存在
     FILINFO src_info;
-    fr = f_stat(source, &src_info);
+    FRESULT fr = f_stat(source, &src_info);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("mv: cannot stat '%s': No such file or directory", source);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1423,11 +1400,11 @@ int cmd_mv(int argc, char *argv[])
     fr = f_rename(source, dest);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("mv: cannot move '%s' to '%s': %d", source, dest, fr);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     SHELL_LOG_FATFS_INFO("Moved '%s' to '%s'", source, dest);
     
     return 0;
@@ -1448,18 +1425,14 @@ int cmd_cat(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     int success_count = 0;
     
     for (int i = 1; i < argc; i++) {
         char *filename = argv[i];
         
-        fr = f_open(&USERFile, filename, FA_READ);
+        FRESULT fr = f_open(&USERFile, filename, FA_READ);
         if (fr != FR_OK) {
             SHELL_LOG_USER_ERROR("cat: %s: No such file or directory", filename);
             continue;
@@ -1484,7 +1457,7 @@ int cmd_cat(int argc, char *argv[])
         shellWriteString(shell, "\r\n");
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return (success_count > 0) ? 0 : -1;
 }
@@ -1511,7 +1484,7 @@ int cmd_cd(int argc, char *argv[])
 {
     Shell *shell = shellGetCurrent();
     if (!shell) return -1;
-    
+
     char *target_dir = "/";  // 默认根目录
     if (argc >= 2) {
         target_dir = argv[1];
@@ -1531,36 +1504,32 @@ int cmd_cd(int argc, char *argv[])
         // 相对路径，基于当前目录
         snprintf(full_path, sizeof(full_path), "%s%s", get_current_directory(), target_dir);
     }
-    
+
     // 标准化路径
     normalize_path(full_path);
-    
+
     // 挂载文件系统验证目录是否存在
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
-    
+    if (check_filesystem_ready() != 0) { return -1; }
+
     // 检查目录是否存在
     FILINFO fno;
-    fr = f_stat(full_path, &fno);
+    FRESULT fr = f_stat(full_path, &fno);
     if (fr != FR_OK) {
         if (strcmp(full_path, "/") != 0) {  // 根目录总是存在
             SHELL_LOG_USER_ERROR("cd: %s: No such file or directory", target_dir);
-            f_mount(NULL, USERPath, 0);
+            
             return -1;
         }
     } else if (!(fno.fattrib & AM_DIR)) {
         SHELL_LOG_USER_ERROR("cd: %s: Not a directory", target_dir);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
     // 更新全局当前目录
     set_current_directory(full_path);
     
-    f_mount(NULL, USERPath, 0);
+    
     SHELL_LOG_FATFS_DEBUG("Changed directory to: %s", get_current_directory());
     
     return 0;
@@ -1574,19 +1543,17 @@ int cmd_df(int argc, char *argv[])
     Shell *shell = shellGetCurrent();
     if (!shell) return -1;
     
+    FRESULT fr;
+    
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     FATFS *fs;
     DWORD fre_clust;
     fr = f_getfree(USERPath, &fre_clust, &fs);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("df: cannot get filesystem information: %d", fr);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1603,7 +1570,7 @@ int cmd_df(int argc, char *argv[])
               (int)((used_sect * 100) / tot_sect),  // Use percentage
               "/");
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return 0;
 }
@@ -1639,19 +1606,15 @@ int cmd_find(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     DIR dir;
     FILINFO fno;
     
-    fr = f_opendir(&dir, search_path);
+    FRESULT fr = f_opendir(&dir, search_path);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("find: '%s': No such directory", search_path);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1661,7 +1624,7 @@ int cmd_find(int argc, char *argv[])
     for (;;) {
         fr = f_readdir(&dir, &fno);
         if (fr != FR_OK || fno.fname[0] == 0) break;
-        
+
         // 简单的通配符匹配
         if (strcmp(pattern, "*") == 0 || strstr(fno.fname, pattern) != NULL) {
             char full_path[256];
@@ -1676,7 +1639,7 @@ int cmd_find(int argc, char *argv[])
     }
     
     f_closedir(&dir);
-    f_mount(NULL, USERPath, 0);
+    
     
     SHELL_LOG_FATFS_DEBUG("Found %d files matching pattern '%s'", found_count, pattern);
     
@@ -1714,16 +1677,12 @@ int cmd_wc(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     for (int i = start_idx; i < argc; i++) {
         char *filename = argv[i];
         
-        fr = f_open(&USERFile, filename, FA_READ);
+        FRESULT fr = f_open(&USERFile, filename, FA_READ);
         if (fr != FR_OK) {
             SHELL_LOG_USER_ERROR("wc: %s: No such file", filename);
             continue;
@@ -1777,7 +1736,7 @@ int cmd_wc(int argc, char *argv[])
         SHELL_LOG_USER_INFO("%s%s", result, filename);
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return 0;
 }
@@ -1789,10 +1748,10 @@ int cmd_head(int argc, char *argv[])
 {
     Shell *shell = shellGetCurrent();
     if (!shell) return -1;
-    
+
     int num_lines = 10;  // 默认10行
     int file_idx = 1;
-    
+
     // 解析-n选项
     if (argc > 3 && strcmp(argv[1], "-n") == 0) {
         num_lines = atoi(argv[2]);
@@ -1811,16 +1770,12 @@ int cmd_head(int argc, char *argv[])
     char *filename = argv[file_idx];
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
-    fr = f_open(&USERFile, filename, FA_READ);
+    FRESULT fr = f_open(&USERFile, filename, FA_READ);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("head: %s: No such file", filename);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1844,7 +1799,7 @@ int cmd_head(int argc, char *argv[])
     }
     
     f_close(&USERFile);
-    f_mount(NULL, USERPath, 0);
+    
     
     return 0;
 }
@@ -1856,10 +1811,10 @@ int cmd_tail(int argc, char *argv[])
 {
     Shell *shell = shellGetCurrent();
     if (!shell) return -1;
-    
+
     int num_lines = 10;  // 默认10行
     int file_idx = 1;
-    
+
     // 解析-n选项
     if (argc > 3 && strcmp(argv[1], "-n") == 0) {
         num_lines = atoi(argv[2]);
@@ -1878,16 +1833,12 @@ int cmd_tail(int argc, char *argv[])
     char *filename = argv[file_idx];
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
-    fr = f_open(&USERFile, filename, FA_READ);
+    FRESULT fr = f_open(&USERFile, filename, FA_READ);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("tail: %s: No such file", filename);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1902,7 +1853,7 @@ int cmd_tail(int argc, char *argv[])
     if (!buffer) {
         SHELL_LOG_USER_ERROR("tail: memory allocation failed");
         f_close(&USERFile);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -1933,7 +1884,7 @@ int cmd_tail(int argc, char *argv[])
     
     vPortFree(buffer);
     f_close(&USERFile);
-    f_mount(NULL, USERPath, 0);
+    
     
     return 0;
 }
@@ -1955,18 +1906,14 @@ int cmd_grep(int argc, char *argv[])
     char *pattern = argv[1];
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     int match_count = 0;
     
     for (int i = 2; i < argc; i++) {
         char *filename = argv[i];
         
-        fr = f_open(&USERFile, filename, FA_READ);
+        FRESULT fr = f_open(&USERFile, filename, FA_READ);
         if (fr != FR_OK) {
             SHELL_LOG_USER_ERROR("grep: %s: No such file", filename);
             continue;
@@ -2005,7 +1952,7 @@ int cmd_grep(int argc, char *argv[])
         f_close(&USERFile);
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return (match_count > 0) ? 0 : 1;
 }
@@ -2025,17 +1972,13 @@ int cmd_file(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     for (int i = 1; i < argc; i++) {
         char *filename = argv[i];
         
         FILINFO fno;
-        fr = f_stat(filename, &fno);
+        FRESULT fr = f_stat(filename, &fno);
         if (fr != FR_OK) {
             SHELL_LOG_USER_INFO("%s: cannot open (No such file)", filename);
             continue;
@@ -2063,7 +2006,7 @@ int cmd_file(int argc, char *argv[])
         SHELL_LOG_USER_INFO("%s: %s, %lu bytes", filename, file_type, fno.fsize);
     }
     
-    f_mount(NULL, USERPath, 0);
+    
     
     return 0;
 }
@@ -2082,19 +2025,15 @@ int cmd_du(int argc, char *argv[])
     }
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     DIR dir;
     FILINFO fno;
     
-    fr = f_opendir(&dir, path);
+    FRESULT fr = f_opendir(&dir, path);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("du: cannot access '%s'", path);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -2112,7 +2051,7 @@ int cmd_du(int argc, char *argv[])
     SHELL_LOG_USER_INFO("%lu\t%s", (total_size + 1023) / 1024, path);  // 显示KB
     
     f_closedir(&dir);
-    f_mount(NULL, USERPath, 0);
+    
     
     return 0;
 }
@@ -2207,30 +2146,26 @@ int cmd_echo(int argc, char *argv[])
             }
         }
     }
-    
+
     // 如果有重定向，写入文件
     if (redirect_file) {
         // 挂载文件系统
-        FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-        if (fr != FR_OK) {
-            SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-            return -1;
-        }
-        
+        if (check_filesystem_ready() != 0) { return -1; }
+
         // 打开文件（覆盖或追加模式）
         BYTE mode = redirect_append ? (FA_WRITE | FA_OPEN_ALWAYS) : (FA_WRITE | FA_CREATE_ALWAYS);
-        fr = f_open(&USERFile, redirect_file, mode);
+        FRESULT fr = f_open(&USERFile, redirect_file, mode);
         if (fr != FR_OK) {
             SHELL_LOG_USER_ERROR("echo: cannot create '%s': %d", redirect_file, fr);
-            f_mount(NULL, USERPath, 0);
+            
             return -1;
         }
-        
+
         // 如果是追加模式，移动到文件末尾
         if (redirect_append) {
             f_lseek(&USERFile, f_size(&USERFile));
         }
-        
+
         // 输出所有参数到文件，用空格分隔（不包括重定向符号及其后面的内容）
         for (int i = start_idx; i < redirect_idx; i++) {
             UINT bytes_written;
@@ -2239,7 +2174,7 @@ int cmd_echo(int argc, char *argv[])
                 f_write(&USERFile, " ", 1, &bytes_written);
             }
         }
-        
+
         // 对于覆盖模式(>)，正常处理换行
         // 对于追加模式(>>)，默认不换行（直接追加到现有内容后面）
         if (!redirect_append) {
@@ -2250,9 +2185,8 @@ int cmd_echo(int argc, char *argv[])
             }
         }
         // 追加模式：默认不添加换行符，除非用户明确需要换行（通过其他方式）
-        
         f_close(&USERFile);
-        f_mount(NULL, USERPath, 0);
+        
     } else {
         // 正常输出到终端
         for (int i = start_idx; i < argc; i++) {
@@ -2286,7 +2220,7 @@ int cmd_which(int argc, char *argv[])
     }
     
     char *command = argv[1];
-    
+
     // 搜索命令表中的命令
     ShellCommand *cmd_base = (ShellCommand *)shell->commandList.base;
     int count = shell->commandList.count;
@@ -2315,7 +2249,7 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
 int shell_tab_completion(Shell *shell, char *buffer, int cursor_pos, int buffer_size)
 {
     if (!shell || !buffer || cursor_pos < 0) return cursor_pos;
-    
+
     // 简单实现：显示所有可用命令
     shellWriteString(shell, "\r\n=== Available Commands ===\r\n");
     
@@ -2358,7 +2292,7 @@ void shell_set_tab_completion(Shell *shell)
 {
     if (shell) {
         // 注意: 这需要shell库支持自定义Tab处理
-        // 如果shell库不支持，可能需要修改shell库源码
+        // 如果shell库不支持，可能需要修改shell库源代码
         // shell->tabCompletionCallback = shell_tab_completion;
         SHELL_LOG_USER_INFO("Tab completion initialized (basic version)");
     }
@@ -2419,20 +2353,16 @@ int cmd_tree(int argc, char *argv[])
     SHELL_LOG_USER_INFO("Directory tree for: %s", path);
     
     // 挂载文件系统
-    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
-    if (fr != FR_OK) {
-        SHELL_LOG_FATFS_ERROR("Failed to mount SD card: %d", fr);
-        return -1;
-    }
+    if (check_filesystem_ready() != 0) { return -1; }
     
     // 简化的树形显示实现
     DIR dir;
     FILINFO fno;
     
-    fr = f_opendir(&dir, path);
+    FRESULT fr = f_opendir(&dir, path);
     if (fr != FR_OK) {
         SHELL_LOG_USER_ERROR("tree: cannot access '%s'", path);
-        f_mount(NULL, USERPath, 0);
+        
         return -1;
     }
     
@@ -2460,7 +2390,7 @@ int cmd_tree(int argc, char *argv[])
     SHELL_LOG_USER_INFO("%d directories, %d files", dir_count, file_count);
     
     f_closedir(&dir);
-    f_mount(NULL, USERPath, 0);
+    
     
     return 0;
 }
@@ -2547,7 +2477,7 @@ int cmd_free(int argc, char *argv[])
     #ifdef configTOTAL_HEAP_SIZE
         total_heap = configTOTAL_HEAP_SIZE;
     #else
-        // 估算总堆大小：当前可用 + 最小历史可用，这是一个保守估计
+        // 估算总堆大小：当前可用 + 最小历史可用，这是一个保守估算
         total_heap = free_heap + (free_heap - min_free_heap);
         if (total_heap < free_heap) {
             total_heap = free_heap + 32768;  // 32KB作为默认估算
@@ -2599,7 +2529,7 @@ int cmd_ll(int argc, char *argv[])
     // 构造新的参数数组
     char *new_argv[] = {"ls", "-la", NULL};
     int new_argc = 2;
-    
+
     // 添加用户提供的其他参数
     if (argc > 1) {
         new_argv[2] = argv[1];

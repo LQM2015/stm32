@@ -38,6 +38,7 @@
 #include "shell.h"
 #include "shell_log.h"
 #include "audio_recorder.h"
+#include "fs_manager.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -134,6 +135,12 @@ int main(void)
   MX_IWDG1_Init();
   /* USER CODE BEGIN 2 */
   
+  // 初始化全局文件系统管理器（一次性挂载）
+  if (fs_manager_init() == 0) {
+    SHELL_LOG_SYS_INFO("Global file system manager initialized successfully");
+  } else {
+    SHELL_LOG_SYS_ERROR("Failed to initialize global file system manager");
+  }
   
    SHELL_LOG_SYS_INFO("System Clock: %lu Hz", HAL_RCC_GetSysClockFreq());
   

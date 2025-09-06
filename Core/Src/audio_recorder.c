@@ -9,6 +9,7 @@
 #include "sai.h"
 #include "fatfs.h"
 #include "shell_log.h"
+#include "fs_manager.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -152,14 +153,14 @@ static int write_audio_data(uint16_t* data, uint32_t size)
     // Further increased the interval and made sync non-blocking to prevent interference with SAI
     if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 300) == 0) {
         SHELL_LOG_USER_DEBUG("Syncing file, total written: %lu bytes", (unsigned long)recorder.bytes_written);
-        //FRESULT sync_res = f_sync(&recorder.file);
-        // if (sync_res != FR_OK) {
-        //     SHELL_LOG_USER_ERROR("File sync failed, FRESULT: %d", sync_res);
-        //     // Don't fail immediately on sync error, continue recording
-        //     SHELL_LOG_USER_WARNING("Continuing recording despite sync failure");
-        // } else {
-        //     SHELL_LOG_USER_DEBUG("File sync successful");
-        // }
+        FRESULT sync_res = f_sync(&recorder.file);
+        if (sync_res != FR_OK) {
+            SHELL_LOG_USER_ERROR("File sync failed, FRESULT: %d", sync_res);
+            // Don't fail immediately on sync error, continue recording
+            SHELL_LOG_USER_WARNING("Continuing recording despite sync failure");
+        } else {
+            SHELL_LOG_USER_DEBUG("File sync successful");
+        }
     }
     
     // Add periodic logging to track write progress (every 50 buffers)
@@ -391,49 +392,26 @@ static void validate_sai_configuration(void)
  */
 static int check_sd_card_status(void)
 {
-    FRESULT res;
-    FATFS *fs;
-    DWORD fre_clust;
-    
     SHELL_LOG_USER_INFO("=== SD Card Status Check ===");
     
-    // Try to get free space (this tests if SD card is accessible)
-    res = f_getfree("0:", &fre_clust, &fs);
-    if (res == FR_OK) {
-        SHELL_LOG_USER_INFO("SD card is accessible");
-        SHELL_LOG_USER_INFO("Free clusters: %lu", fre_clust);
-        SHELL_LOG_USER_INFO("Cluster size: %lu bytes", fs->csize * 512);
-        SHELL_LOG_USER_INFO("Free space: %lu MB", (fre_clust * fs->csize) / 2048);
+    // 检查全局文件系统管理器状态
+    if (fs_manager_check_status() == 0) {
+        SHELL_LOG_USER_INFO("SD card is accessible via global fs manager");
         return 0;
     }
     
-    SHELL_LOG_USER_WARNING("SD card not accessible, FRESULT: %d", res);
+    SHELL_LOG_USER_WARNING("SD card not accessible via global fs manager");
     
-    // Try to fix by unmounting and remounting
-    SHELL_LOG_USER_INFO("Attempting to fix SD card access...");
+    // 尝试使用文件系统管理器重新挂载
+    SHELL_LOG_USER_INFO("Attempting to fix SD card access via fs manager...");
     
-    // Unmount first
-    f_mount(NULL, "0:", 0);
-    HAL_Delay(200);
-    
-    // Try to mount again
-    res = f_mount(&USERFatFS, "0:", 1);
-    if (res != FR_OK) {
-        SHELL_LOG_USER_ERROR("Failed to remount SD card, FRESULT: %d", res);
-        return -1;
+    if (fs_manager_remount() == 0) {
+        SHELL_LOG_USER_INFO("SD card access restored successfully");
+        return 0;
     }
     
-    // Verify the mount worked
-    HAL_Delay(100);
-    res = f_getfree("0:", &fre_clust, &fs);
-    if (res != FR_OK) {
-        SHELL_LOG_USER_ERROR("SD card still not accessible after remount, FRESULT: %d", res);
-        return -1;
-    }
-    
-    SHELL_LOG_USER_INFO("SD card access restored successfully");
-    SHELL_LOG_USER_INFO("Free clusters: %lu", fre_clust);
-    return 0;
+    SHELL_LOG_USER_ERROR("Failed to restore SD card access");
+    return -1;
 }
 
 /**
@@ -593,97 +571,28 @@ int audio_recorder_start(void)
     validate_sai_configuration();
     
     // Check if SD card is mounted first
-    SHELL_LOG_USER_DEBUG("Checking SD card mount status...");
-    FATFS *fs;
-    DWORD fre_clust;
-    res = f_getfree("0:", &fre_clust, &fs);
-    if (res != FR_OK) {
-        SHELL_LOG_USER_ERROR("SD card not mounted or accessible, FRESULT: %d", res);
+    SHELL_LOG_USER_DEBUG("Checking SD card mount status via global fs manager...");
+    
+    if (fs_manager_check_status() != 0) {
+        SHELL_LOG_USER_ERROR("SD card not accessible via global fs manager");
         
-        // Print detailed error information for f_getfree
-        switch(res) {
-            case FR_NOT_READY:
-                SHELL_LOG_USER_ERROR("Drive not ready - SD card may not be inserted or initialized");
-                break;
-            case FR_DISK_ERR:
-                SHELL_LOG_USER_ERROR("Disk error - SD card hardware issue");
-                break;
-            case FR_NOT_ENABLED:
-                SHELL_LOG_USER_ERROR("Volume not enabled");
-                break;
-            case FR_NO_FILESYSTEM:
-                SHELL_LOG_USER_ERROR("No valid filesystem found on SD card");
-                break;
-            default:
-                SHELL_LOG_USER_ERROR("Unknown error code: %d", res);
-                break;
-        }
+        // 尝试通过文件系统管理器修复
+        SHELL_LOG_USER_INFO("Attempting to fix SD card access via global fs manager...");
         
-        SHELL_LOG_USER_INFO("Attempting to unmount and remount SD card...");
-        
-        // First try to unmount
-        f_mount(NULL, USERPath, 0);
-        HAL_Delay(100);
-        
-        // Try to mount with force flag
-        res = f_mount(&USERFatFS, USERPath, 1);
-        if (res != FR_OK) {
-            SHELL_LOG_USER_ERROR("Failed to mount SD card, FRESULT: %d", res);
-            
-            // Print detailed mount error information
-            switch(res) {
-                case FR_NOT_READY:
-                    SHELL_LOG_USER_ERROR("Mount failed: Drive not ready");
-                    break;
-                case FR_DISK_ERR:
-                    SHELL_LOG_USER_ERROR("Mount failed: Disk error");
-                    break;
-                case FR_NOT_ENABLED:
-                    SHELL_LOG_USER_ERROR("Mount failed: Volume not enabled");
-                    break;
-                case FR_NO_FILESYSTEM:
-                    SHELL_LOG_USER_ERROR("Mount failed: No filesystem");
-                    break;
-                case FR_INVALID_DRIVE:
-                    SHELL_LOG_USER_ERROR("Mount failed: Invalid drive");
-                    break;
-                default:
-                    SHELL_LOG_USER_ERROR("Mount failed: Unknown error %d", res);
-                    break;
-            }
-            
+        if (fs_manager_remount() != 0) {
+            SHELL_LOG_USER_ERROR("Failed to fix SD card access");
             recorder.state = AUDIO_REC_ERROR;
             return -1;
         }
-        SHELL_LOG_USER_INFO("SD card mounted successfully");
         
-        // Verify mount by checking free space again
-        HAL_Delay(50);
-        res = f_getfree("0:", &fre_clust, &fs);
-        if (res != FR_OK) {
-            SHELL_LOG_USER_ERROR("SD card mount verification failed, FRESULT: %d", res);
-            recorder.state = AUDIO_REC_ERROR;
-            return -1;
-        }
-        SHELL_LOG_USER_INFO("SD card mount verified, free clusters: %lu", fre_clust);
+        SHELL_LOG_USER_INFO("SD card access restored via global fs manager");
     } else {
-        SHELL_LOG_USER_INFO("SD card is accessible, free clusters: %lu", fre_clust);
+        SHELL_LOG_USER_INFO("SD card is accessible via global fs manager");
     }
     
     // Generate filename
     generate_filename(recorder.filename, sizeof(recorder.filename));
     SHELL_LOG_USER_INFO("Generated filename: %s", recorder.filename);
-    
-    // Try to create directory if needed
-    SHELL_LOG_USER_DEBUG("Ensuring directory exists...");
-    res = f_mkdir("audio");
-    if (res == FR_OK) {
-        SHELL_LOG_USER_INFO("Created audio directory");
-    } else if (res == FR_EXIST) {
-        SHELL_LOG_USER_DEBUG("Audio directory already exists");
-    } else {
-        SHELL_LOG_USER_DEBUG("Could not create audio directory, FRESULT: %d", res);
-    }
     
     // Try with directory path
     char full_path[64];
@@ -946,10 +855,6 @@ int audio_recorder_stop(void)
         
         recorder.file_open = false;
         
-        // 强制文件系统同步，确保所有缓存数据写入SD卡
-        SHELL_LOG_USER_INFO("Forcing filesystem sync...");
-        FRESULT sync_fs_result = f_sync(NULL); // 同步整个文件系统
-        SHELL_LOG_USER_INFO("Filesystem sync result: %d", sync_fs_result);
     }
     
     // Always transition to idle state, even if there were errors
