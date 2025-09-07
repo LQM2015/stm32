@@ -2706,10 +2706,8 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
  */
 int cmd_audio_start(int argc, char *argv[])
 {
-    if (audio_recorder_get_state() != AUDIO_REC_IDLE) {
-        SHELL_LOG_USER_ERROR("Audio recording is already active or in error state");
-        return -1;
-    }
+    // 移除重复的状态检查，让audio_recorder_start()内部处理
+    // audio_recorder_start()已经包含了完整的状态检查和重置逻辑
     
     if (audio_recorder_start() == 0) {
         SHELL_LOG_USER_INFO("Audio recording started");
@@ -2731,16 +2729,33 @@ int cmd_audio_start(int argc, char *argv[])
  */
 int cmd_audio_stop(int argc, char *argv[])
 {
-    if (audio_recorder_get_state() != AUDIO_REC_RECORDING) {
-        SHELL_LOG_USER_ERROR("No active recording to stop");
-        return -1;
-    }
+    // 移除重复的状态检查，让audio_recorder_stop()内部处理
+    // audio_recorder_stop()已经包含了完整的状态检查和错误处理逻辑
     
     if (audio_recorder_stop() == 0) {
         SHELL_LOG_USER_INFO("Audio recording stopped");
         SHELL_LOG_USER_INFO("Total bytes written: %lu", audio_recorder_get_bytes_written());
     } else {
         SHELL_LOG_USER_ERROR("Failed to stop audio recording");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Reset audio recorder to clean state
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_reset(int argc, char *argv[])
+{
+    if (audio_recorder_reset() == 0) {
+        SHELL_LOG_USER_INFO("Audio recorder reset to clean state");
+        SHELL_LOG_USER_INFO("Current state: %d (IDLE=0)", audio_recorder_get_state());
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to reset audio recorder");
         return -1;
     }
     
@@ -2790,4 +2805,433 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  audio_stop, cmd_audio_stop, stop audio recording);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_reset, cmd_audio_reset, reset audio recorder to clean state);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  audio_status, cmd_audio_status, show audio recording status);
+
+/* =================================================================== */
+/* File Write Performance Test Commands                               */
+/* =================================================================== */
+
+/**
+ * @brief 测试循环写入4096字节数据到文件
+ * @param argc 参数个数
+ * @param argv 参数数组
+ * @retval 0: 成功, -1: 失败
+ */
+int cmd_test_write_loop(int argc, char **argv)
+{
+    int loops = 100;  // 默认写入100次
+    int sync_interval = 8;  // 默认每8次写入同步一次
+    const char* filename = "test_write_loop.bin";
+    
+    // 解析命令行参数
+    if (argc >= 2) {
+        loops = atoi(argv[1]);
+        if (loops <= 0 || loops > 10000) {
+            SHELL_LOG_USER_ERROR("Invalid loop count: %d (valid range: 1-10000)", loops);
+            return -1;
+        }
+    }
+    
+    if (argc >= 3) {
+        sync_interval = atoi(argv[2]);
+        if (sync_interval <= 0 || sync_interval > loops) {
+            SHELL_LOG_USER_ERROR("Invalid sync interval: %d (valid range: 1-%d)", sync_interval, loops);
+            return -1;
+        }
+    }
+    
+    if (argc >= 4) {
+        filename = argv[3];
+    }
+    
+    SHELL_LOG_USER_INFO("Starting write loop test:");
+    SHELL_LOG_USER_INFO("  Loops: %d", loops);
+    SHELL_LOG_USER_INFO("  Data size per loop: 4096 bytes");
+    SHELL_LOG_USER_INFO("  Total data: %lu bytes", (unsigned long)(loops * 4096));
+    SHELL_LOG_USER_INFO("  Sync interval: every %d writes", sync_interval);
+    SHELL_LOG_USER_INFO("  Filename: %s", filename);
+    
+    // 检查文件系统状态
+    if (MOUNT_FILESYSTEM() != 0) {
+        return -1;
+    }
+    
+    // 检查SD卡是否准备好写入
+    if (audio_recorder_is_sd_ready_for_write() != 0) {
+        SHELL_LOG_USER_ERROR("SD card not ready for write operations");
+        return -1;
+    }
+    
+    // 动态分配测试数据缓冲区 (避免栈溢出)
+    uint8_t* test_data = (uint8_t*)pvPortMalloc(4096);
+    if (test_data == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to allocate 4096 bytes for test data");
+        return -1;
+    }
+    
+    // 创建测试数据模式 (4096字节)
+    for (int i = 0; i < 4096; i++) {
+        test_data[i] = (uint8_t)(i & 0xFF);  // 递增模式
+    }
+    
+    // 动态分配文件对象 (避免静态变量的线程安全问题)
+    FIL* test_file = (FIL*)pvPortMalloc(sizeof(FIL));
+    if (test_file == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to allocate memory for file object");
+        vPortFree(test_data);
+        return -1;
+    }
+    
+    // 清零文件对象以确保干净的初始状态
+    memset(test_file, 0, sizeof(FIL));
+    
+    FRESULT res = f_open(test_file, filename, FA_CREATE_ALWAYS | FA_WRITE);
+    if (res != FR_OK) {
+        SHELL_LOG_USER_ERROR("Failed to open file %s, FRESULT: %d", filename, res);
+        vPortFree(test_data);  // 释放内存
+        vPortFree(test_file);  // 释放文件对象内存
+        return -1;
+    }
+    
+    // 验证文件对象初始状态
+    SHELL_LOG_USER_INFO("File opened successfully, initial object state:");
+    SHELL_LOG_USER_INFO("  File object fs pointer: %p", test_file->obj.fs);
+    SHELL_LOG_USER_INFO("  File object id: %d", test_file->obj.id);
+    SHELL_LOG_USER_INFO("  File flag: 0x%02X", test_file->flag);
+    SHELL_LOG_USER_INFO("  File error: %d", test_file->err);
+    
+    SHELL_LOG_USER_INFO("Starting write test...");
+    
+    // 记录开始时间
+    uint32_t start_time = HAL_GetTick();
+    uint32_t total_bytes_written = 0;
+    int write_errors = 0;
+    int sync_errors = 0;
+    
+    // 循环写入测试
+    for (int i = 0; i < loops; i++) {
+        UINT bytes_written;
+        
+        // 检查SD卡状态 (每10次检查一次以避免过度开销)
+        if (i % 10 == 0) {
+            if (audio_recorder_is_sd_ready_for_write() != 0) {
+                SHELL_LOG_USER_WARNING("SD card not ready at loop %d, continuing...", i + 1);
+            }
+        }
+        
+        // 验证文件对象有效性和内存完整性
+        if (test_file->obj.fs == NULL) {
+            SHELL_LOG_USER_ERROR("File object fs pointer is NULL at loop %d, aborting", i + 1);
+            write_errors += 10;
+            break;
+        }
+        
+        // 额外的文件对象健康检查
+        if (test_file->flag == 0xFF || test_file->obj.id == 0xFFFF) {
+            SHELL_LOG_USER_ERROR("File object appears corrupted at loop %d", i + 1);
+            SHELL_LOG_USER_ERROR("  Flag: 0x%02X, ID: %d", test_file->flag, test_file->obj.id);
+            write_errors += 10;
+            break;
+        }
+        
+        // 记录写入前的文件对象状态
+        SHELL_LOG_USER_DEBUG("Before write - fs: %p, id: %d, flag: 0x%02X", 
+                            test_file->obj.fs, test_file->obj.id, test_file->flag);
+        
+        // 写入4096字节
+        res = f_write(test_file, test_data, 4096, &bytes_written);
+        
+        // 记录写入后的文件对象状态
+        SHELL_LOG_USER_DEBUG("After write - fs: %p, id: %d, flag: 0x%02X, res: %d", 
+                            test_file->obj.fs, test_file->obj.id, test_file->flag, res);
+        
+        if (res != FR_OK || bytes_written != 4096) {
+            write_errors++;
+            SHELL_LOG_USER_ERROR("Write error at loop %d: FRESULT=%d, written=%lu", 
+                                i + 1, res, (unsigned long)bytes_written);
+            
+            // 当遇到 FR_INVALID_OBJECT 错误时，进行详细诊断
+            if (res == FR_INVALID_OBJECT) {
+                SHELL_LOG_USER_ERROR("=== FILE OBJECT DIAGNOSTIC ===");
+                SHELL_LOG_USER_ERROR("File object fs pointer: %p", test_file->obj.fs);
+                SHELL_LOG_USER_ERROR("File object id: %d", test_file->obj.id);
+                SHELL_LOG_USER_ERROR("File flag: 0x%02X", test_file->flag);
+                SHELL_LOG_USER_ERROR("File error: %d", test_file->err);
+                SHELL_LOG_USER_ERROR("File pointer: %lu", (unsigned long)test_file->fptr);
+                SHELL_LOG_USER_ERROR("Test data pointer: %p", test_data);
+                SHELL_LOG_USER_ERROR("Loop iteration: %d", i + 1);
+            }
+            
+            // 详细错误分析
+            switch(res) {
+                case FR_DISK_ERR:
+                    SHELL_LOG_USER_ERROR("  -> Disk I/O error");
+                    break;
+                case FR_INT_ERR:
+                    SHELL_LOG_USER_ERROR("  -> Internal error");
+                    break;
+                case FR_NOT_READY:
+                    SHELL_LOG_USER_ERROR("  -> Drive not ready");
+                    break;
+                case FR_INVALID_OBJECT:
+                    SHELL_LOG_USER_ERROR("  -> Invalid file object! (File structure corrupted)");
+                    break;
+                case FR_WRITE_PROTECTED:
+                    SHELL_LOG_USER_ERROR("  -> Write protected");
+                    break;
+                default:
+                    SHELL_LOG_USER_ERROR("  -> Unknown error code: %d", res);
+                    break;
+            }
+            
+            if (write_errors >= 5) {
+                SHELL_LOG_USER_ERROR("Too many write errors, aborting test");
+                break;
+            }
+        } else {
+            total_bytes_written += bytes_written;
+            
+            // 确保写入操作完成 (内存屏障)
+            __DSB();
+            __ISB();
+        }
+        
+        // 周期性同步
+        if ((i + 1) % sync_interval == 0) {
+            // 在同步前记录详细的文件对象状态
+            SHELL_LOG_USER_DEBUG("Before sync - fs: %p, id: %d, flag: 0x%02X", 
+                                test_file->obj.fs, test_file->obj.id, test_file->flag);
+            
+            // 在同步前检查文件对象状态
+            if (test_file->obj.fs == NULL) {
+                SHELL_LOG_USER_ERROR("File object fs pointer NULL before sync");
+                sync_errors++;
+                break;
+            }
+            
+            FRESULT sync_res = f_sync(test_file);
+            
+            // 记录同步后的文件对象状态
+            SHELL_LOG_USER_DEBUG("After sync - fs: %p, id: %d, flag: 0x%02X, sync_res: %d", 
+                                test_file->obj.fs, test_file->obj.id, test_file->flag, sync_res);
+            
+            if (sync_res != FR_OK) {
+                sync_errors++;
+                // 简化日志输出以避免格式化问题
+                SHELL_LOG_USER_WARNING("Sync error at loop");
+                SHELL_LOG_USER_WARNING("Loop number: %d", i + 1);
+                SHELL_LOG_USER_WARNING("FRESULT: %d", sync_res);
+                
+                // 检查同步后的文件对象状态
+                if (sync_res == FR_INVALID_OBJECT) {
+                    SHELL_LOG_USER_ERROR("File object became invalid after write");
+                    SHELL_LOG_USER_ERROR("This suggests memory corruption");
+                    break;  // 停止测试
+                }
+            } else {
+                SHELL_LOG_USER_DEBUG("Synced at loop %d", i + 1);
+            }
+        }
+        
+        // 进度报告 (每100次或最后一次)
+        if ((i + 1) % 100 == 0 || i == loops - 1) {
+            uint32_t elapsed = HAL_GetTick() - start_time;
+            uint32_t progress_percent = (uint32_t)((uint64_t)(i + 1) * 100 / loops);
+            SHELL_LOG_USER_INFO("Progress: %lu%% (%d/%d), elapsed: %lu ms", 
+                              (unsigned long)progress_percent, i + 1, loops, elapsed);
+        }
+    }
+    
+    // 最终同步和关闭文件
+    SHELL_LOG_USER_INFO("Performing final sync...");
+    FRESULT final_sync = f_sync(test_file);
+    if (final_sync != FR_OK) {
+        SHELL_LOG_USER_WARNING("Final sync failed: FRESULT=%d", final_sync);
+        sync_errors++;
+    }
+    
+    FRESULT close_res = f_close(test_file);
+    if (close_res != FR_OK) {
+        SHELL_LOG_USER_ERROR("Failed to close file: FRESULT=%d", close_res);
+    }
+    
+    // 计算和显示测试结果
+    uint32_t total_time = HAL_GetTick() - start_time;
+    
+    // 避免浮点数运算，使用整数计算
+    uint32_t write_speed_bps = 0;
+    uint32_t success_rate_percent = 0;
+    
+    if (total_bytes_written > 0 && total_time > 0) {
+        write_speed_bps = (uint32_t)((uint64_t)total_bytes_written * 1000 / total_time);
+    }
+    
+    if (loops > 0) {
+        success_rate_percent = (uint32_t)((uint64_t)(loops - write_errors) * 100 / loops);
+    }
+    
+    SHELL_LOG_USER_INFO("=== Write Loop Test Results ===");
+    SHELL_LOG_USER_INFO("Total time: %lu ms", total_time);
+    SHELL_LOG_USER_INFO("Total bytes written: %lu", (unsigned long)total_bytes_written);
+    SHELL_LOG_USER_INFO("Write speed: %lu bytes/s (%lu KB/s)", 
+                       write_speed_bps, write_speed_bps / 1024);
+    SHELL_LOG_USER_INFO("Write errors: %d", write_errors);
+    SHELL_LOG_USER_INFO("Sync errors: %d", sync_errors);
+    SHELL_LOG_USER_INFO("Success rate: %lu%%", (unsigned long)success_rate_percent);
+    
+    if (write_errors == 0 && sync_errors == 0) {
+        SHELL_LOG_USER_INFO("Test completed successfully!");
+    } else {
+        SHELL_LOG_USER_WARNING("Test completed with errors");
+    }
+    
+    // 释放测试数据内存
+    vPortFree(test_data);
+    
+    // 释放文件对象内存
+    vPortFree(test_file);
+    
+    return (write_errors == 0) ? 0 : -1;
+}
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 test_write_loop, cmd_test_write_loop, test loop writing 4096 bytes to file [loops] [sync_interval] [filename]);
+
+/**
+ * @brief 测试单次写入大块数据到文件 (快速测试)
+ * @param argc 参数个数
+ * @param argv 参数数组
+ * @retval 0: 成功, -1: 失败
+ */
+int cmd_test_write_single(int argc, char **argv)
+{
+    int data_size = 4096;  // 默认4KB
+    const char* filename = "test_write_single.bin";
+    
+    // 解析命令行参数
+    if (argc >= 2) {
+        data_size = atoi(argv[1]);
+        if (data_size <= 0 || data_size > (512 * 1024)) {  // 最大512KB
+            SHELL_LOG_USER_ERROR("Invalid data size: %d (valid range: 1-%d)", data_size, 512 * 1024);
+            return -1;
+        }
+    }
+    
+    if (argc >= 3) {
+        filename = argv[2];
+    }
+    
+    SHELL_LOG_USER_INFO("Starting single write test:");
+    SHELL_LOG_USER_INFO("  Data size: %d bytes", data_size);
+    SHELL_LOG_USER_INFO("  Filename: %s", filename);
+    
+    // 检查文件系统状态
+    if (MOUNT_FILESYSTEM() != 0) {
+        return -1;
+    }
+    
+    // 检查SD卡是否准备好写入
+    if (audio_recorder_is_sd_ready_for_write() != 0) {
+        SHELL_LOG_USER_ERROR("SD card not ready for write operations");
+        return -1;
+    }
+    
+    // 分配测试数据缓冲区
+    uint8_t* test_data = (uint8_t*)pvPortMalloc(data_size);
+    if (test_data == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to allocate %d bytes for test data", data_size);
+        return -1;
+    }
+    
+    // 创建测试数据模式
+    for (int i = 0; i < data_size; i++) {
+        test_data[i] = (uint8_t)(i & 0xFF);
+    }
+    
+    // 打开文件 (动态分配文件对象避免线程安全问题)
+    FIL* test_file_single = (FIL*)pvPortMalloc(sizeof(FIL));
+    if (test_file_single == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to allocate memory for file object");
+        vPortFree(test_data);
+        return -1;
+    }
+    
+    // 清零文件对象以确保干净的初始状态
+    memset(test_file_single, 0, sizeof(FIL));
+    
+    FRESULT res = f_open(test_file_single, filename, FA_CREATE_ALWAYS | FA_WRITE);
+    if (res != FR_OK) {
+        SHELL_LOG_USER_ERROR("Failed to open file %s, FRESULT: %d", filename, res);
+        vPortFree(test_data);
+        vPortFree(test_file_single);
+        return -1;
+    }
+    
+    // 记录开始时间并执行写入
+    uint32_t start_time = HAL_GetTick();
+    
+    UINT bytes_written;
+    res = f_write(test_file_single, test_data, data_size, &bytes_written);
+    
+    // 确保写入操作完成 (内存屏障)
+    __DSB();
+    __ISB();
+    
+    uint32_t write_time = HAL_GetTick() - start_time;
+    
+    // 同步文件
+    uint32_t sync_start = HAL_GetTick();
+    FRESULT sync_res = f_sync(test_file_single);
+    uint32_t sync_time = HAL_GetTick() - sync_start;
+    
+    // 关闭文件
+    FRESULT close_res = f_close(test_file_single);
+    
+    uint32_t total_time = HAL_GetTick() - start_time;
+    
+    // 释放内存
+    vPortFree(test_data);
+    vPortFree(test_file_single);
+    
+    // 显示测试结果
+    SHELL_LOG_USER_INFO("=== Single Write Test Results ===");
+    
+    if (res == FR_OK && bytes_written == data_size) {
+        SHELL_LOG_USER_INFO("Write: SUCCESS");
+        SHELL_LOG_USER_INFO("  Bytes written: %lu", (unsigned long)bytes_written);
+        SHELL_LOG_USER_INFO("  Write time: %lu ms", write_time);
+        
+        // 避免浮点数运算，使用整数计算速度 (bytes/second)
+        uint32_t write_speed_bps = 0;
+        if (write_time > 0) {
+            write_speed_bps = (uint32_t)((uint64_t)bytes_written * 1000 / write_time);
+        }
+        SHELL_LOG_USER_INFO("  Write speed: %lu bytes/s (%lu KB/s)", 
+                           write_speed_bps, write_speed_bps / 1024);
+    } else {
+        SHELL_LOG_USER_ERROR("Write: FAILED");
+        SHELL_LOG_USER_ERROR("  FRESULT: %d", res);
+        SHELL_LOG_USER_ERROR("  Expected: %d, Written: %lu", data_size, (unsigned long)bytes_written);
+    }
+    
+    if (sync_res == FR_OK) {
+        SHELL_LOG_USER_INFO("Sync: SUCCESS (%lu ms)", sync_time);
+    } else {
+        SHELL_LOG_USER_ERROR("Sync: FAILED (FRESULT: %d)", sync_res);
+    }
+    
+    if (close_res == FR_OK) {
+        SHELL_LOG_USER_INFO("Close: SUCCESS");
+    } else {
+        SHELL_LOG_USER_ERROR("Close: FAILED (FRESULT: %d)", close_res);
+    }
+    
+    SHELL_LOG_USER_INFO("Total time: %lu ms", total_time);
+    
+    return (res == FR_OK && sync_res == FR_OK && close_res == FR_OK) ? 0 : -1;
+}
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 test_write_single, cmd_test_write_single, test single write to file [data_size] [filename]);

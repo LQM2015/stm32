@@ -73,6 +73,7 @@ int cmd_fshelp(int argc, char *argv[]);
 /* Audio recording commands */
 int cmd_audio_start(int argc, char *argv[]);
 int cmd_audio_stop(int argc, char *argv[]);
+int cmd_audio_reset(int argc, char *argv[]);
 int cmd_audio_status(int argc, char *argv[]);
 
 /* Additional utility commands */

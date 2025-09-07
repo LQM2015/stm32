@@ -10,6 +10,7 @@
 #include "fatfs.h"
 #include "shell_log.h"
 #include "fs_manager.h"
+#include "diskio.h"  // For SD card status checking
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -24,6 +25,14 @@
 /* Private macro -------------------------------------------------------------*/
 
 /* Private variables ---------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+// 独立的文件对象，避免与录音器结构体混在一起被踩踏
+static FIL g_audio_file __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
+
+// 音频录制器实例，使用DMA安全的内存区域
+#if defined ( __GNUC__ )
+__attribute__((section(".dma_buffer"), aligned(32)))
+#endif
 static AudioRecorder_t recorder = {0};
 /* DMA buffer: placed in .dma_buffer (linker -> D3 SRAM 0x38000000) with 32-byte alignment.
  * Region configured via MPU (Region7) as non-cacheable & shareable, so no runtime cache maintenance required.
@@ -40,6 +49,11 @@ static volatile bool half_buffer_ready = false;
 static osSemaphoreId_t audio_data_sem = NULL;
 static osThreadId_t audio_process_thread_id = NULL;
 
+// 降低SAI回调打印频次的计数器
+static uint32_t rx_complete_counter = 0;
+static uint32_t rx_half_counter = 0;
+#define RX_CALLBACK_LOG_INTERVAL 50  // 每50次回调打印一次
+
 // External variables from fatfs
 extern FATFS USERFatFS;
 extern char USERPath[4];
@@ -52,6 +66,8 @@ static void monitor_sai_timing(void);
 static void reset_sai_timing_status(void);
 void audio_recorder_process(void);
 static int check_sd_card_status(void);
+static int check_sd_card_busy(void);
+static int is_sd_card_ready_for_write(void);
 static void audio_process_thread(void *argument);
 static int verify_file_exists(const char* filepath);
 
@@ -89,12 +105,14 @@ static int write_audio_data(uint16_t* data, uint32_t size)
     UINT bytes_written;
     FRESULT res;
     static uint32_t writes_since_sync = 0;
-    const uint32_t SYNC_INTERVAL = 8; // Sync every 8 writes
+    const uint32_t SYNC_INTERVAL = 16; // 增加同步间隔，降低同步频率 (从8改为16)
 
     // Check for reentrant calls - prevent interrupt collision
     if (recorder.write_in_progress) {
-        SHELL_LOG_USER_ERROR("Write operation already in progress - skipping");
-        return -1;
+        // 重入冲突：返回特殊值-2，区别于真正的写入错误-1
+        // 禁用频繁的错误日志，避免UART传输影响SD卡操作
+        // SHELL_LOG_USER_ERROR("Write operation already in progress - skipping");
+        return -2;  // 重入冲突
     }
     
     // Set write-in-progress flag
@@ -106,16 +124,63 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         return -1;
     }
     
+    // Check if SD card is ready for write operations
+    if (is_sd_card_ready_for_write() != 0) {
+        SHELL_LOG_USER_ERROR("SD card not ready for write operation");
+        recorder.write_in_progress = false;
+        return -1;
+    }
+    
     // Verify file object validity before writing
-    if (recorder.file.obj.fs == NULL) {
+    if (g_audio_file.obj.fs == NULL) {
         SHELL_LOG_USER_ERROR("File object invalid - filesystem pointer is NULL");
         recorder.file_open = false;
         recorder.write_in_progress = false;
         return -1;
     }
     
+    // 额外的文件对象完整性检查
+    if (g_audio_file.obj.id == 0 || g_audio_file.flag == 0) {
+        SHELL_LOG_USER_ERROR("File object corrupted - ID: %d, Flag: %d", 
+                            g_audio_file.obj.id, g_audio_file.flag);
+        recorder.file_open = false;
+        recorder.write_in_progress = false;
+        return -1;
+    }
+    
+    // 检查文件错误标志
+    if (g_audio_file.err != 0) {
+        SHELL_LOG_USER_ERROR("File object has error flag set: %d", g_audio_file.err);
+        recorder.file_open = false;
+        recorder.write_in_progress = false;
+        return -1;
+    }
+    
+    // 额外的文件对象内存检查
+    if ((uint32_t)&g_audio_file < 0x20000000 || (uint32_t)&g_audio_file > 0x2007FFFF) {
+        if ((uint32_t)&g_audio_file < 0x24000000 || (uint32_t)&g_audio_file > 0x2407FFFF) {
+            if ((uint32_t)&g_audio_file < 0x38000000 || (uint32_t)&g_audio_file > 0x3807FFFF) {
+                SHELL_LOG_USER_ERROR("File object at invalid memory location: %p", &g_audio_file);
+                recorder.file_open = false;
+                recorder.write_in_progress = false;
+                return -1;
+            }
+        }
+    }
+    
+    // 关键修复：禁用中断防止文件操作被重入
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    
     // Write all data at once
-    res = f_write(&recorder.file, data, size, &bytes_written);
+    res = f_write(&g_audio_file, data, size, &bytes_written);
+    
+    // 确保写入操作完成 (内存屏障)
+    __DSB();
+    __ISB();
+    
+    // 恢复中断状态
+    __set_PRIMASK(primask);
     
     if (res == FR_OK && bytes_written == size) {
         // Success - update counters
@@ -124,17 +189,55 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         
         // Sync periodically instead of after every write
         if (writes_since_sync >= SYNC_INTERVAL) {
-            FRESULT sync_res = f_sync(&recorder.file);
-            if (sync_res != FR_OK) {
-                SHELL_LOG_USER_ERROR("Periodic sync failed, FRESULT: %d", sync_res);
-                recorder.write_in_progress = false;
-                return -1;
+            // 实现安全的同步操作，带重试机制
+            bool sync_success = false;
+            int retry_count = 0;
+            const int MAX_SYNC_RETRIES = 3;
+            
+            while (!sync_success && retry_count < MAX_SYNC_RETRIES) {
+                // 禁用中断进行同步操作
+                uint32_t sync_primask = __get_PRIMASK();
+                __disable_irq();
+                
+                // 在同步前验证文件对象
+                if (g_audio_file.obj.fs == NULL || g_audio_file.flag == 0) {
+                    __set_PRIMASK(sync_primask);
+                    SHELL_LOG_USER_ERROR("File object invalid before sync attempt %d", retry_count + 1);
+                    break;
+                }
+                
+                FRESULT sync_res = f_sync(&g_audio_file);
+                
+                // 内存屏障确保同步完成
+                __DSB();
+                __ISB();
+                
+                // 恢复中断
+                __set_PRIMASK(sync_primask);
+                
+                if (sync_res == FR_OK) {
+                    sync_success = true;
+                    writes_since_sync = 0;
+                } else {
+                    retry_count++;
+                    SHELL_LOG_USER_ERROR("Sync attempt %d failed, FRESULT: %d", retry_count, sync_res);
+                    
+                    if (retry_count < MAX_SYNC_RETRIES) {
+                        // 短暂延迟后重试
+                        vTaskDelay(pdMS_TO_TICKS(1));
+                    }
+                }
             }
-            writes_since_sync = 0;
+            
+            if (!sync_success) {
+                SHELL_LOG_USER_ERROR("All sync attempts failed, continuing without sync");
+                // 重置计数器，避免连续失败
+                writes_since_sync = 0;
+            }
         }
         
-        SHELL_LOG_USER_DEBUG("Write succeeded, %lu bytes written, writes since sync: %lu", 
-                            (unsigned long)bytes_written, (unsigned long)writes_since_sync);
+        // SHELL_LOG_USER_DEBUG("Write succeeded, %lu bytes written, writes since sync: %lu", 
+        //                     (unsigned long)bytes_written, (unsigned long)writes_since_sync);
     } else {
         SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, expected: %lu, written: %lu", 
                             res, (unsigned long)size, (unsigned long)bytes_written);
@@ -310,6 +413,81 @@ static void reset_sai_timing_status(void)
 }
 
 /**
+ * @brief Check if SD card is busy and cannot accept write operations
+ * @retval 0: Ready for write, -1: Busy or error
+ */
+static int check_sd_card_busy(void)
+{
+    // Check disk status first
+    DSTATUS disk_stat = disk_status(0);  // Drive 0 is SD card
+    
+    if (disk_stat & STA_NOINIT) {
+        SHELL_LOG_USER_WARNING("SD card not initialized");
+        return -1;
+    }
+    
+    if (disk_stat & STA_NODISK) {
+        SHELL_LOG_USER_ERROR("No SD card detected");
+        return -1;
+    }
+    
+    if (disk_stat & STA_PROTECT) {
+        SHELL_LOG_USER_ERROR("SD card is write protected");
+        return -1;
+    }
+    
+    // Additional check: try to get SD card state via HAL
+    extern SD_HandleTypeDef hsd1;  // Assuming this is your SD handle
+    HAL_SD_CardStateTypeDef card_state = HAL_SD_GetCardState(&hsd1);
+    
+    if (card_state != HAL_SD_CARD_TRANSFER) {
+        SHELL_LOG_USER_WARNING("SD card not in transfer state: %d", card_state);
+        return -1;
+    }
+    
+    return 0;  // Ready for write
+}
+
+/**
+ * @brief Check if SD card is ready for write operations (comprehensive check)
+ * @retval 0: Ready, -1: Not ready
+ */
+static int is_sd_card_ready_for_write(void)
+{
+    // First check if card is busy
+    if (check_sd_card_busy() != 0) {
+        return -1;
+    }
+    
+    // Try a sync operation to see if disk is responsive
+    DRESULT ioctl_result = disk_ioctl(0, CTRL_SYNC, NULL);
+    
+    if (ioctl_result != RES_OK) {
+        SHELL_LOG_USER_WARNING("SD card sync check failed, DRESULT: %d", ioctl_result);
+        switch (ioctl_result) {
+            case RES_ERROR:
+                SHELL_LOG_USER_ERROR("SD card I/O error");
+                break;
+            case RES_WRPRT:
+                SHELL_LOG_USER_ERROR("SD card write protected");
+                break;
+            case RES_NOTRDY:
+                SHELL_LOG_USER_ERROR("SD card not ready");
+                break;
+            case RES_PARERR:
+                SHELL_LOG_USER_ERROR("SD card parameter error");
+                break;
+            default:
+                SHELL_LOG_USER_ERROR("SD card unknown error: %d", ioctl_result);
+                break;
+        }
+        return -1;
+    }
+    
+    return 0;  // Ready for write
+}
+
+/**
  * @brief Check SD card status and try to fix common issues
  * @retval 0: Success, -1: Error
  */
@@ -365,6 +543,10 @@ int audio_recorder_init(void)
 {
     SHELL_LOG_USER_INFO("Initializing audio recorder...");
     
+    // 清零文件对象确保干净状态，添加内存屏障
+    memset(&g_audio_file, 0, sizeof(FIL));
+    __DSB();  // 确保内存清零完成
+    
     // Initialize recorder structure
     recorder.channels = AUDIO_CHANNELS;
     recorder.bit_depth = AUDIO_BIT_DEPTH;
@@ -404,6 +586,56 @@ int audio_recorder_init(void)
 }
 
 /**
+ * @brief Reset audio recorder to clean state (force reset)
+ * @retval 0: Success, -1: Error
+ */
+int audio_recorder_reset(void)
+{
+    SHELL_LOG_USER_INFO("Force resetting audio recorder...");
+    SHELL_LOG_USER_DEBUG("Current state before reset: %d", recorder.state);
+    
+    // Force stop SAI if it's running
+    if (HAL_SAI_GetState(&hsai_BlockA4) != HAL_SAI_STATE_READY) {
+        SHELL_LOG_USER_INFO("Forcing SAI DMA stop...");
+        HAL_SAI_DMAStop(&hsai_BlockA4);
+        HAL_SAI_Abort(&hsai_BlockA4);
+        
+        // Wait for SAI to stop
+        uint32_t timeout = HAL_GetTick() + 200;
+        while (HAL_SAI_GetState(&hsai_BlockA4) != HAL_SAI_STATE_READY && HAL_GetTick() < timeout) {
+            vTaskDelay(1);
+        }
+    }
+    
+    // Force close file if it's open
+    if (recorder.file_open) {
+        SHELL_LOG_USER_INFO("Force closing file...");
+        f_close(&g_audio_file);
+        recorder.file_open = false;
+    }
+    
+    // Clear file object
+    memset(&g_audio_file, 0, sizeof(FIL));
+    __DSB();
+    
+    // Reset all recorder state
+    recorder.state = AUDIO_REC_IDLE;
+    recorder.bytes_written = 0;
+    recorder.write_in_progress = false;
+    
+    // Clear flags
+    buffer_ready = false;
+    half_buffer_ready = false;
+    
+    // Reset counters
+    rx_complete_counter = 0;
+    rx_half_counter = 0;
+    
+    SHELL_LOG_USER_INFO("Audio recorder reset completed, state: %d", recorder.state);
+    return 0;
+}
+
+/**
  * @brief Start audio recording
  * @retval 0: Success, -1: Error
  */
@@ -415,24 +647,23 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_DEBUG("Current state: %d (IDLE=%d, RECORDING=%d, STOPPING=%d, ERROR=%d)", 
                          recorder.state, AUDIO_REC_IDLE, AUDIO_REC_RECORDING, AUDIO_REC_STOPPING, AUDIO_REC_ERROR);
     
-    // 如果在错误状态，先重置到空闲状态
-    if (recorder.state == AUDIO_REC_ERROR) {
-        SHELL_LOG_USER_WARNING("Recorder in error state, resetting to idle");
-        recorder.state = AUDIO_REC_IDLE;
-        recorder.file_open = false;
+    // 如果已经在录音，直接返回错误但用更友好的消息
+    if (recorder.state == AUDIO_REC_RECORDING) {
+        SHELL_LOG_USER_INFO("Audio recording is already active");
+        return -1;
     }
     
-    // 如果在停止状态，等待完成或强制重置
-    if (recorder.state == AUDIO_REC_STOPPING) {
-        SHELL_LOG_USER_WARNING("Recorder in stopping state, forcing reset to idle");
-        recorder.state = AUDIO_REC_IDLE;
-        recorder.file_open = false;
-    }
-    
+    // 如果在任何非空闲状态，尝试强制重置
     if (recorder.state != AUDIO_REC_IDLE) {
-        SHELL_LOG_USER_ERROR("Cannot start recording, current state: %d (expected IDLE=%d)", 
-                             recorder.state, AUDIO_REC_IDLE);
-        return -1; // Already recording
+        SHELL_LOG_USER_WARNING("Recorder not in idle state (%d), attempting force reset...", recorder.state);
+        audio_recorder_reset();
+        
+        // 再次检查状态
+        if (recorder.state != AUDIO_REC_IDLE) {
+            SHELL_LOG_USER_ERROR("Failed to reset recorder to idle state, current: %d", recorder.state);
+            return -1;
+        }
+        SHELL_LOG_USER_INFO("Recorder successfully reset to idle state");
     }
     
     // Check and fix SD card status first
@@ -465,6 +696,12 @@ int audio_recorder_start(void)
         SHELL_LOG_USER_INFO("SD card is accessible via global fs manager");
     }
     
+    // 关键修复：在每次开始录音前重新初始化文件对象
+    SHELL_LOG_USER_DEBUG("Reinitializing file object for clean state...");
+    memset(&g_audio_file, 0, sizeof(FIL));
+    __DSB();  // 内存屏障确保清零完成
+    __ISB();  // 指令屏障
+    
     // Generate filename
     generate_filename(recorder.filename, sizeof(recorder.filename));
     SHELL_LOG_USER_INFO("Generated filename: %s", recorder.filename);
@@ -474,13 +711,26 @@ int audio_recorder_start(void)
     snprintf(full_path, sizeof(full_path), "%s", recorder.filename);
     SHELL_LOG_USER_INFO("Attempting to open file: %s", full_path);
     
-    // Open file for writing
-    res = f_open(&recorder.file, full_path, FA_CREATE_ALWAYS | FA_WRITE);
+    // Open file for writing (禁用中断保护文件系统操作)
+    uint32_t open_primask = __get_PRIMASK();
+    __disable_irq();
+    
+    res = f_open(&g_audio_file, full_path, FA_CREATE_ALWAYS | FA_WRITE);
+    
+    __DSB();  // 确保文件打开完成
+    __set_PRIMASK(open_primask);  // 恢复中断
+    
     SHELL_LOG_USER_INFO("f_open result: %d for path: %s", res, full_path);
     
     if (res == FR_OK) {
-        // 立即同步文件以确保创建
-        FRESULT sync_res = f_sync(&recorder.file);
+        // 立即同步文件以确保创建 (也需要中断保护)
+        uint32_t sync_primask = __get_PRIMASK();
+        __disable_irq();
+        
+        FRESULT sync_res = f_sync(&g_audio_file);
+        
+        __DSB();
+        __set_PRIMASK(sync_primask);
         SHELL_LOG_USER_INFO("f_sync after create result: %d", sync_res);
         
         // 简化：不再写入测试数据，避免扰乱实际PCM文件内容
@@ -489,7 +739,16 @@ int audio_recorder_start(void)
     if (res != FR_OK) {
         SHELL_LOG_USER_ERROR("Failed to open file in / directory, FRESULT: %d", res);
         SHELL_LOG_USER_INFO("Trying to open file in root directory...");
-        res = f_open(&recorder.file, recorder.filename, FA_CREATE_ALWAYS | FA_WRITE);
+        
+        // 第二次尝试也需要中断保护
+        uint32_t retry_primask = __get_PRIMASK();
+        __disable_irq();
+        
+        res = f_open(&g_audio_file, recorder.filename, FA_CREATE_ALWAYS | FA_WRITE);
+        
+        __DSB();
+        __set_PRIMASK(retry_primask);
+        
         if (res != FR_OK) {
             SHELL_LOG_USER_ERROR("Failed to open file in root directory, FRESULT: %d", res);
             
@@ -543,7 +802,7 @@ int audio_recorder_start(void)
     recorder.write_in_progress = false;  // Initialize write protection flag
     
     // 验证文件是否真的创建成功 - 通过获取文件大小而不是重新打开
-    FSIZE_t current_size = f_size(&recorder.file);
+    FSIZE_t current_size = f_size(&g_audio_file);
     SHELL_LOG_USER_INFO("File created successfully, current size: %lu bytes", (unsigned long)current_size);
     
     // 记录实际使用的文件路径
@@ -568,7 +827,7 @@ int audio_recorder_start(void)
     if (sai_result != HAL_OK) {
         SHELL_LOG_USER_ERROR("Failed to start SAI DMA reception, HAL result: %d", sai_result);
         SHELL_LOG_USER_DEBUG("SAI state after failed start: %d", HAL_SAI_GetState(&hsai_BlockA4));
-        f_close(&recorder.file);
+        f_close(&g_audio_file);
         recorder.file_open = false;
         recorder.state = AUDIO_REC_ERROR;
         SHELL_LOG_USER_DEBUG("State set to ERROR due to SAI failure: %d", recorder.state);
@@ -604,18 +863,30 @@ int audio_recorder_stop(void)
                          recorder.state, AUDIO_REC_IDLE, AUDIO_REC_RECORDING, AUDIO_REC_STOPPING, AUDIO_REC_ERROR);
     
     if (recorder.state == AUDIO_REC_IDLE) {
-        SHELL_LOG_USER_WARNING("No active recording to stop (already in idle state)");
-        return 0; // 不是错误，只是没有录音在进行
+        SHELL_LOG_USER_INFO("No active recording to stop (already in idle state)");
+        return 0; // 成功，没有录音在进行
     }
     
     if (recorder.state == AUDIO_REC_STOPPING) {
-        SHELL_LOG_USER_WARNING("Recording is already stopping");
-        return 0; // 已经在停止过程中
+        SHELL_LOG_USER_INFO("Recording is already stopping, waiting for completion...");
+        
+        // 等待停止完成，最多等待1秒
+        uint32_t timeout = HAL_GetTick() + 1000;
+        while (recorder.state == AUDIO_REC_STOPPING && HAL_GetTick() < timeout) {
+            vTaskDelay(10);
+        }
+        
+        if (recorder.state == AUDIO_REC_STOPPING) {
+            SHELL_LOG_USER_WARNING("Stop operation timed out, forcing reset");
+            audio_recorder_reset();
+        }
+        
+        return 0;
     }
     
+    // 允许从任何状态停止，包括错误状态
     if (recorder.state != AUDIO_REC_RECORDING && recorder.state != AUDIO_REC_ERROR) {
-        SHELL_LOG_USER_ERROR("Cannot stop recording, unexpected state: %d", recorder.state);
-        return -1;
+        SHELL_LOG_USER_WARNING("Stopping from unexpected state: %d, will attempt to stop anyway", recorder.state);
     }
     
     recorder.state = AUDIO_REC_STOPPING;
@@ -666,8 +937,15 @@ int audio_recorder_stop(void)
     if (recorder.file_open) {
         SHELL_LOG_USER_INFO("Syncing and closing file...");
         
-        // First sync the file to ensure all data is written
-        FRESULT sync_result = f_sync(&recorder.file);
+        // First sync the file to ensure all data is written (中断保护)
+        uint32_t stop_sync_primask = __get_PRIMASK();
+        __disable_irq();
+        
+        FRESULT sync_result = f_sync(&g_audio_file);
+        
+        __DSB();
+        __set_PRIMASK(stop_sync_primask);
+        
         if (sync_result != FR_OK) {
             SHELL_LOG_USER_WARNING("File sync failed, FRESULT: %d", sync_result);
         } else {
@@ -686,7 +964,14 @@ int audio_recorder_stop(void)
             close_attempts++;
             SHELL_LOG_USER_DEBUG("File close attempt %d/%d", close_attempts, max_close_attempts);
             
-            close_result = f_close(&recorder.file);
+            // 关闭文件也需要中断保护
+            uint32_t close_primask = __get_PRIMASK();
+            __disable_irq();
+            
+            close_result = f_close(&g_audio_file);
+            
+            __DSB();
+            __set_PRIMASK(close_primask);
             
             if (close_result == FR_OK) {
                 SHELL_LOG_USER_INFO("File closed successfully on attempt %d", close_attempts);
@@ -826,6 +1111,15 @@ int audio_recorder_check_sd_card(void)
 }
 
 /**
+ * @brief Check if SD card is ready for write operations (public API)
+ * @retval 0: Ready, -1: Not ready
+ */
+int audio_recorder_is_sd_ready_for_write(void)
+{
+    return is_sd_card_ready_for_write();
+}
+
+/**
  * @brief Audio processing thread function
  * @param argument: Not used
  */
@@ -859,13 +1153,18 @@ void audio_recorder_process(void)
         half_buffer_ready = false;
         // Non-cacheable region: no invalidate required
         // Write first half of the buffer using optimized write function
-        if (write_audio_data(&audio_buffer[0], AUDIO_HALF_BUFFER_SIZE) != 0) {
+        int write_result = write_audio_data(&audio_buffer[0], AUDIO_HALF_BUFFER_SIZE);
+        if (write_result == -1) {
+            // 真正的写入错误
             SHELL_LOG_USER_ERROR("Failed to write first half of buffer, stopping recording.");
             audio_recorder_stop();
             recorder.state = AUDIO_REC_ERROR;
             SHELL_LOG_USER_ERROR("State set to ERROR after first half write failure");
+        } else if (write_result == -2) {
+            // 重入冲突，跳过但不设置错误状态
+            // SHELL_LOG_USER_DEBUG("First half buffer write skipped due to reentry conflict");
         } else {
-            SHELL_LOG_USER_DEBUG("First half buffer written successfully, state: %d", recorder.state);
+            //SHELL_LOG_USER_DEBUG("First half buffer written successfully, state: %d", recorder.state);
         }
     }
 
@@ -873,13 +1172,18 @@ void audio_recorder_process(void)
         buffer_ready = false;
         // Non-cacheable region: no invalidate required
         // Write second half of the buffer using optimized write function
-        if (write_audio_data(&audio_buffer[AUDIO_BUFFER_SAMPLES / 2], AUDIO_HALF_BUFFER_SIZE) != 0) {
+        int write_result = write_audio_data(&audio_buffer[AUDIO_BUFFER_SAMPLES / 2], AUDIO_HALF_BUFFER_SIZE);
+        if (write_result == -1) {
+            // 真正的写入错误
             SHELL_LOG_USER_ERROR("Failed to write second half of buffer, stopping recording.");
             audio_recorder_stop();
             recorder.state = AUDIO_REC_ERROR;
             SHELL_LOG_USER_ERROR("State set to ERROR after second half write failure");
+        } else if (write_result == -2) {
+            // 重入冲突，跳过但不设置错误状态
+            // SHELL_LOG_USER_DEBUG("Second half buffer write skipped due to reentry conflict");
         } else {
-            SHELL_LOG_USER_DEBUG("Second half buffer written successfully, state: %d", recorder.state);
+            //SHELL_LOG_USER_DEBUG("Second half buffer written successfully, state: %d", recorder.state);
         }
     }
 }
@@ -891,8 +1195,12 @@ void audio_recorder_process(void)
  */
 void audio_recorder_rx_complete_callback(void)
 {
-    /* Keep callbacks lightweight: no debug log unless verbose */
-    SHELL_LOG_USER_DEBUG("SAI RX complete");
+    /* Keep callbacks lightweight: reduced debug log frequency */
+    rx_complete_counter++;
+    if (rx_complete_counter % RX_CALLBACK_LOG_INTERVAL == 0) {
+        SHELL_LOG_USER_DEBUG("SAI RX complete (%lu)", (unsigned long)rx_complete_counter);
+    }
+    
     if (recorder.state == AUDIO_REC_RECORDING) {
         buffer_ready = true;
         osSemaphoreRelease(audio_data_sem);
@@ -904,8 +1212,12 @@ void audio_recorder_rx_complete_callback(void)
  */
 void audio_recorder_rx_half_complete_callback(void)
 {
-    /* Half complete */
-    SHELL_LOG_USER_DEBUG("SAI RX half");
+    /* Half complete - reduced debug log frequency */
+    rx_half_counter++;
+    if (rx_half_counter % RX_CALLBACK_LOG_INTERVAL == 0) {
+        SHELL_LOG_USER_DEBUG("SAI RX half (%lu)", (unsigned long)rx_half_counter);
+    }
+    
     if (recorder.state == AUDIO_REC_RECORDING) {
         half_buffer_ready = true;
         osSemaphoreRelease(audio_data_sem);

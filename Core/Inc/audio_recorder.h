@@ -31,13 +31,18 @@ typedef struct {
     uint8_t bit_depth;
     uint32_t sample_rate;
     AudioRecorderState_t state;
-    FIL file;
+    // 文件对象分离，避免被音频录制器其他部分踩踏
+    // FIL file;                   // 移除嵌入的文件对象
     char filename[64];
     uint32_t bytes_written;
     uint32_t buffer_size;
     bool file_open;
     bool write_in_progress;  // Flag to prevent reentrant writes
-} AudioRecorder_t;
+} __attribute__((aligned(32))) AudioRecorder_t;  // 32字节对齐，匹配缓存行
+
+// 独立的文件对象，不与录音器结构体混在一起
+// extern FIL g_audio_file __attribute__((section(".dma_buffer")));  // 放在DMA安全区域
+// 改为在源文件中定义为static，不需要extern声明
 
 /* Exported constants --------------------------------------------------------*/
 #define AUDIO_CHANNELS          8       // Number of channels (configurable: 4 or 8)
@@ -71,6 +76,7 @@ typedef struct {
 
 /* Exported functions prototypes ---------------------------------------------*/
 int audio_recorder_init(void);
+int audio_recorder_reset(void);  // Force reset to clean state
 int audio_recorder_start(void);
 int audio_recorder_stop(void);
 AudioRecorderState_t audio_recorder_get_state(void);
@@ -78,6 +84,7 @@ uint32_t audio_recorder_get_bytes_written(void);
 const char* audio_recorder_get_filename(void);
 void audio_recorder_debug_status(void);
 int audio_recorder_check_sd_card(void);
+int audio_recorder_is_sd_ready_for_write(void);  // New function to check SD readiness
 
 /* Callback functions */
 void audio_recorder_rx_complete_callback(void);
