@@ -82,6 +82,9 @@ static int write_audio_data(uint16_t* data, uint32_t size)
 {
     UINT bytes_written;
     FRESULT res;
+    uint32_t remaining_size = size;
+    uint8_t* src_ptr = (uint8_t*)data;
+    const uint32_t MAX_WRITE_SIZE = 512; // Maximum write size per operation
     
     if (!recorder.file_open) {
         SHELL_LOG_USER_ERROR("Cannot write data, file not open");
@@ -95,27 +98,28 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         return -1;
     }
     
-    res = f_write(&recorder.file, data, size, &bytes_written);
-    
-    if (res == FR_OK && bytes_written == size) {
-        // Success
-        recorder.bytes_written += bytes_written;
-    } else {
-        SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d", res);
-        return -1;
-    }
-    
-    // Sync file periodically to ensure data is written.
-    // Further increased the interval and made sync non-blocking to prevent interference with SAI
-    if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 300) == 0) {
-        SHELL_LOG_USER_DEBUG("Syncing file, total written: %lu bytes", (unsigned long)recorder.bytes_written);
-        FRESULT sync_res = f_sync(&recorder.file);
-        if (sync_res != FR_OK) {
-            SHELL_LOG_USER_ERROR("File sync failed, FRESULT: %d", sync_res);
-            // Don't fail immediately on sync error, continue recording
-            SHELL_LOG_USER_WARNING("Continuing recording despite sync failure");
+    // Write data in chunks of maximum 512 bytes
+    while (remaining_size > 0) {
+        uint32_t write_size = (remaining_size > MAX_WRITE_SIZE) ? MAX_WRITE_SIZE : remaining_size;
+        
+        res = f_write(&recorder.file, src_ptr, write_size, &bytes_written);
+        
+        if (res == FR_OK && bytes_written == write_size) {
+            // Success - update counters
+            recorder.bytes_written += bytes_written;
+            remaining_size -= bytes_written;
+            src_ptr += bytes_written;
+            
+            // Immediately sync after each write
+            FRESULT sync_res = f_sync(&recorder.file);
+            if (sync_res != FR_OK) {
+                SHELL_LOG_USER_ERROR("File sync failed after write, FRESULT: %d", sync_res);
+                return -1;
+            }
         } else {
-            SHELL_LOG_USER_DEBUG("File sync successful");
+            SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, expected: %lu, written: %lu", 
+                                res, (unsigned long)write_size, (unsigned long)bytes_written);
+            return -1;
         }
     }
     
