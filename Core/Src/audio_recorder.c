@@ -50,12 +50,10 @@ static int write_audio_data(uint16_t* data, uint32_t size);
 static void debug_sai_status(void);
 static void monitor_sai_timing(void);
 static void reset_sai_timing_status(void);
-static void validate_sai_configuration(void);
 void audio_recorder_process(void);
 static int check_sd_card_status(void);
 static void audio_process_thread(void *argument);
 static int verify_file_exists(const char* filepath);
-static int recover_file_handle(void);
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -97,56 +95,14 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         return -1;
     }
     
-    // Retry mechanism for write operations
-    int write_attempts = 0;
-    const int max_write_attempts = 3;
+    res = f_write(&recorder.file, data, size, &bytes_written);
     
-    while (write_attempts < max_write_attempts) {
-        write_attempts++;
-        
-        res = f_write(&recorder.file, data, size, &bytes_written);
-        
-        if (res == FR_OK && bytes_written == size) {
-            // Success
-            recorder.bytes_written += bytes_written;
-            break;
-        } else {
-            SHELL_LOG_USER_WARNING("Write attempt %d failed, FRESULT: %d, requested: %lu, written: %lu", 
-                   write_attempts, res, (unsigned long)size, (unsigned long)bytes_written);
-            
-            // Handle specific error cases
-            if (res == FR_INVALID_OBJECT) {
-                SHELL_LOG_USER_ERROR("File object is invalid - attempting recovery");
-                recorder.file_open = false;
-                
-                // Try to recover the file handle once
-                if (write_attempts == 1 && recover_file_handle() == 0) {
-                    SHELL_LOG_USER_INFO("File handle recovered, retrying write");
-                    continue; // Retry the write operation
-                } else {
-                    SHELL_LOG_USER_ERROR("File recovery failed, stopping recording");
-                    return -1;
-                }
-            } else if (res == FR_DISK_ERR) {
-                SHELL_LOG_USER_ERROR("Disk error - SD card hardware issue");
-                // Try to recover by checking SD card status
-                if (check_sd_card_status() != 0) {
-                    SHELL_LOG_USER_ERROR("SD card not accessible, stopping recording");
-                    return -1;
-                }
-            } else if (res == FR_NOT_READY) {
-                SHELL_LOG_USER_ERROR("Drive not ready - SD card may have been removed");
-                return -1;
-            }
-            
-            if (write_attempts < max_write_attempts) {
-                // Brief delay before retry, but keep it minimal to avoid audio dropouts
-                HAL_Delay(1);
-            } else {
-                SHELL_LOG_USER_ERROR("Write failed after %d attempts, FRESULT: %d", max_write_attempts, res);
-                return -1;
-            }
-        }
+    if (res == FR_OK && bytes_written == size) {
+        // Success
+        recorder.bytes_written += bytes_written;
+    } else {
+        SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d", res);
+        return -1;
     }
     
     // Sync file periodically to ensure data is written.
@@ -161,11 +117,6 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         } else {
             SHELL_LOG_USER_DEBUG("File sync successful");
         }
-    }
-    
-    // Add periodic logging to track write progress (every 50 buffers)
-    if (recorder.bytes_written > 0 && recorder.bytes_written % (AUDIO_BUFFER_SIZE * 50) == 0) {
-        SHELL_LOG_USER_INFO("Recording progress: %lu bytes written", (unsigned long)recorder.bytes_written);
     }
     
     return 0;
@@ -334,59 +285,6 @@ static void reset_sai_timing_status(void)
 }
 
 /**
- * @brief Validate SAI configuration to ensure it matches the configured audio parameters
- */
-static void validate_sai_configuration(void)
-{
-    uint32_t sai_cr1 = hsai_BlockA4.Instance->CR1;
-    uint32_t sai_cr2 = hsai_BlockA4.Instance->CR2;
-    uint32_t sai_frcr = hsai_BlockA4.Instance->FRCR;
-    uint32_t sai_slotr = hsai_BlockA4.Instance->SLOTR;
-    
-    SHELL_LOG_USER_INFO("=== SAI Configuration Validation ===");
-    SHELL_LOG_USER_INFO("Current audio config: %d channels, %d-bit, %d Hz", 
-                         AUDIO_CHANNELS, AUDIO_BIT_DEPTH, AUDIO_SAMPLE_RATE);
-    
-    // Check if SAI is in slave mode (bit 1:0 should be 00 for slave RX)
-    uint32_t mode = sai_cr1 & SAI_xCR1_MODE;
-    if (mode == SAI_xCR1_MODE_1) {
-        SHELL_LOG_USER_ERROR("ERROR: SAI is in MASTER TX mode (0x%02lX), should be SLAVE RX", mode >> SAI_xCR1_MODE_Pos);
-    } else if (mode == (SAI_xCR1_MODE_1 | SAI_xCR1_MODE_0)) {
-        SHELL_LOG_USER_ERROR("ERROR: SAI is in MASTER RX mode (0x%02lX), should be SLAVE RX", mode >> SAI_xCR1_MODE_Pos);
-    } else if (mode == SAI_xCR1_MODE_0) {
-        SHELL_LOG_USER_ERROR("ERROR: SAI is in SLAVE TX mode (0x%02lX), should be SLAVE RX", mode >> SAI_xCR1_MODE_Pos);
-    } else {
-        SHELL_LOG_USER_INFO("OK: SAI is in SLAVE RX mode");
-    }
-    
-    // Check FIFO threshold
-    uint32_t fifo_th = (sai_cr2 & SAI_xCR2_FTH) >> SAI_xCR2_FTH_Pos;
-    SHELL_LOG_USER_INFO("FIFO Threshold: %ld (0=empty, 1=1/4, 2=1/2, 3=3/4, 4=full)", fifo_th);
-    
-    // Check frame length (calculated based on configuration)
-    uint32_t expected_frame_len = SAI_FRAME_LENGTH;
-    uint32_t frame_len = ((sai_frcr & SAI_xFRCR_FRL) >> SAI_xFRCR_FRL_Pos) + 1;
-    if (frame_len != expected_frame_len) {
-        SHELL_LOG_USER_WARNING("Frame length is %ld, expected %ld for %dch*%dbit", 
-                               frame_len, expected_frame_len, AUDIO_CHANNELS, AUDIO_BIT_DEPTH);
-    } else {
-        SHELL_LOG_USER_INFO("OK: Frame length is %ld", frame_len);
-    }
-    
-    // Check active slots (based on channel configuration)
-    uint32_t slot_active = (sai_slotr & SAI_xSLOTR_SLOTEN) >> SAI_xSLOTR_SLOTEN_Pos;
-    uint32_t expected_slot_mask = SAI_SLOT_ACTIVE_MASK;
-    if (slot_active != expected_slot_mask) {
-        SHELL_LOG_USER_WARNING("Active slots: 0x%02lX, expected 0x%02lX for %d channels", 
-                               slot_active, expected_slot_mask, AUDIO_CHANNELS);
-    } else {
-        SHELL_LOG_USER_INFO("OK: All %d slots active (0x%02lX)", AUDIO_CHANNELS, slot_active);
-    }
-    
-    SHELL_LOG_USER_INFO("=== Configuration Validation Complete ===");
-}
-
-/**
  * @brief Check SD card status and try to fix common issues
  * @retval 0: Success, -1: Error
  */
@@ -430,51 +328,6 @@ static int verify_file_exists(const char* filepath)
         SHELL_LOG_USER_WARNING("File %s does not exist, FRESULT: %d", filepath, res);
         return -1;
     }
-}
-
-/**
- * @brief Attempt to recover file handle after FR_INVALID_OBJECT error
- * @retval 0: Success, -1: Error
- */
-static int recover_file_handle(void)
-{
-    FRESULT res;
-    
-    SHELL_LOG_USER_WARNING("Attempting to recover file handle...");
-    
-    // First check if SD card is still accessible
-    if (check_sd_card_status() != 0) {
-        SHELL_LOG_USER_ERROR("SD card not accessible during recovery");
-        return -1;
-    }
-    
-    // Close the current file handle (even if it's invalid)
-    if (recorder.file_open) {
-        f_close(&recorder.file);
-        recorder.file_open = false;
-        HAL_Delay(50); // Give time for cleanup
-    }
-    
-    // Try to reopen the file in append mode
-    res = f_open(&recorder.file, recorder.filename, FA_OPEN_EXISTING | FA_WRITE);
-    if (res != FR_OK) {
-        SHELL_LOG_USER_ERROR("Failed to reopen file in recovery, FRESULT: %d", res);
-        return -1;
-    }
-    
-    // Seek to the end of file to continue appending
-    FSIZE_t file_size = f_size(&recorder.file);
-    res = f_lseek(&recorder.file, file_size);
-    if (res != FR_OK) {
-        SHELL_LOG_USER_ERROR("Failed to seek to end of file, FRESULT: %d", res);
-        f_close(&recorder.file);
-        return -1;
-    }
-    
-    recorder.file_open = true;
-    SHELL_LOG_USER_INFO("File handle recovered successfully, current size: %lu bytes", (unsigned long)file_size);
-    
-    return 0;
 }
 
 /* Exported functions --------------------------------------------------------*/
@@ -566,9 +419,6 @@ int audio_recorder_start(void)
     
     // Reset SAI timing status and clear any error flags
     reset_sai_timing_status();
-    
-    // Validate SAI configuration before starting
-    validate_sai_configuration();
     
     // Check if SD card is mounted first
     SHELL_LOG_USER_DEBUG("Checking SD card mount status via global fs manager...");

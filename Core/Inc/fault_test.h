@@ -10,7 +10,7 @@ void test_hardfault_divide_by_zero(void);
 void test_hardfault_null_pointer(void);
 void test_hardfault_invalid_memory_access(void);
 void test_hardfault_undefined_instruction(void);
-void test_hardfault_stack_overflow(void);
+
 
 // Shell命令函数声明
 int cmd_fault_test(int argc, char *argv[]);

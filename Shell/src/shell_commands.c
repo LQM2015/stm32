@@ -1627,7 +1627,7 @@ int cmd_find(int argc, char *argv[])
 
         // 简单的通配符匹配
         if (strcmp(pattern, "*") == 0 || strstr(fno.fname, pattern) != NULL) {
-            char full_path[256];
+            char full_path[512];  // 增加缓冲区大小以避免截断
             if (strcmp(search_path, "/") == 0) {
                 snprintf(full_path, sizeof(full_path), "/%s", fno.fname);
             } else {

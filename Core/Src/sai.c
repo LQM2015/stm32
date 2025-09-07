@@ -111,7 +111,7 @@ void HAL_SAI_MspInit(SAI_HandleTypeDef* saiHandle)
        __HAL_RCC_SAI4_CLK_ENABLE();
 
     /* Peripheral interrupt init*/
-    HAL_NVIC_SetPriority(SAI4_IRQn, 5, 0);
+    HAL_NVIC_SetPriority(SAI4_IRQn, 6, 0);
     HAL_NVIC_EnableIRQ(SAI4_IRQn);
     }
     SAI4_client ++;

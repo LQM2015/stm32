@@ -227,50 +227,6 @@ void test_hardfault_stack_direct(void)
     SHELL_LOG_SYS_ERROR("Stack overflow test did not trigger exception!");
 }
 
-// Test stack overflow (through fast deep recursion)
-static volatile int recursion_depth = 0;
-static volatile int max_recursion = 500;  // Limit recursion depth to avoid watchdog reset
-
-void test_stack_overflow_recursive(void)
-{
-    recursion_depth++;
-    char large_array[2048];  // Use larger stack space, quickly consume stack
-    
-    // Quickly fill array to consume stack space
-    for(int i = 0; i < 2048; i++) {
-        large_array[i] = (char)(i & 0xFF);
-    }
-    
-    if(recursion_depth % 50 == 0) {
-        SHELL_LOG_SYS_INFO("Recursion depth: %d", recursion_depth);
-    }
-    
-    // Limit recursion depth, if no exception triggered then manually trigger
-    if(recursion_depth < max_recursion) {
-        test_stack_overflow_recursive();  // Continue recursion
-    } else {
-        SHELL_LOG_SYS_WARNING("Reached maximum recursion depth but no exception triggered, trying to directly access stack bottom...");
-        // If no exception triggered, try to directly access invalid stack address
-        extern uint32_t _estack;  // Stack top address
-        volatile uint32_t *stack_overflow_addr = (volatile uint32_t *)((uint32_t)&_estack - 0x20000);  // Below stack bottom
-        SHELL_LOG_SYS_INFO("Trying to access stack bottom address: 0x%08X", (uint32_t)stack_overflow_addr);
-        *stack_overflow_addr = 0xDEADBEEF;  // Access memory below stack bottom
-    }
-}
-
-// Entry function for stack overflow test
-void test_hardfault_stack_overflow(void)
-{
-    SHELL_LOG_SYS_INFO("Testing stack overflow...");
-    
-    // Enable Memory Management Fault
-    SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
-    SHELL_LOG_SYS_INFO("Enabled Memory Management Fault");
-    
-    recursion_depth = 0;
-    SHELL_LOG_SYS_WARNING("Starting deep recursion test, will quickly consume stack space...");
-    test_stack_overflow_recursive();
-}
 
 // Shell command function - exception test menu
 int cmd_fault_test(int argc, char *argv[])
@@ -300,10 +256,6 @@ int cmd_fault_test(int argc, char *argv[])
     else if (strcmp(argv[1], "instr") == 0) {
         SHELL_LOG_SYS_WARNING("About to execute undefined instruction test, system will enter exception handler!");
         test_hardfault_undefined_instruction();
-    }
-    else if (strcmp(argv[1], "stack") == 0) {
-        SHELL_LOG_SYS_WARNING("About to execute stack overflow test, system will enter exception handler!");
-        test_hardfault_stack_overflow();
     }
     else if (strcmp(argv[1], "stackfast") == 0) {
         SHELL_LOG_SYS_WARNING("About to execute fast stack overflow test, system will enter exception handler!");
@@ -363,11 +315,3 @@ int cmd_test_instr(int argc, char *argv[])
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  test_instr, cmd_test_instr, test undefined instruction fault);
 
-int cmd_test_stack(int argc, char *argv[])
-{
-    SHELL_LOG_SYS_WARNING("Executing stack overflow test - system will trigger MemManage Fault!");
-    test_hardfault_stack_overflow();
-    return 0;
-}
-SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
-                 test_stack, cmd_test_stack, test stack overflow fault);
