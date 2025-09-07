@@ -124,14 +124,7 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         return -1;
     }
     
-    // Check if SD card is ready for write operations
-    if (is_sd_card_ready_for_write() != 0) {
-        SHELL_LOG_USER_ERROR("SD card not ready for write operation");
-        recorder.write_in_progress = false;
-        return -1;
-    }
-    
-    // Verify file object validity before writing
+    // 简化的文件对象有效性检查 - 只检查关键字段
     if (g_audio_file.obj.fs == NULL) {
         SHELL_LOG_USER_ERROR("File object invalid - filesystem pointer is NULL");
         recorder.file_open = false;
@@ -139,48 +132,8 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         return -1;
     }
     
-    // 额外的文件对象完整性检查
-    if (g_audio_file.obj.id == 0 || g_audio_file.flag == 0) {
-        SHELL_LOG_USER_ERROR("File object corrupted - ID: %d, Flag: %d", 
-                            g_audio_file.obj.id, g_audio_file.flag);
-        recorder.file_open = false;
-        recorder.write_in_progress = false;
-        return -1;
-    }
-    
-    // 检查文件错误标志
-    if (g_audio_file.err != 0) {
-        SHELL_LOG_USER_ERROR("File object has error flag set: %d", g_audio_file.err);
-        recorder.file_open = false;
-        recorder.write_in_progress = false;
-        return -1;
-    }
-    
-    // 额外的文件对象内存检查
-    if ((uint32_t)&g_audio_file < 0x20000000 || (uint32_t)&g_audio_file > 0x2007FFFF) {
-        if ((uint32_t)&g_audio_file < 0x24000000 || (uint32_t)&g_audio_file > 0x2407FFFF) {
-            if ((uint32_t)&g_audio_file < 0x38000000 || (uint32_t)&g_audio_file > 0x3807FFFF) {
-                SHELL_LOG_USER_ERROR("File object at invalid memory location: %p", &g_audio_file);
-                recorder.file_open = false;
-                recorder.write_in_progress = false;
-                return -1;
-            }
-        }
-    }
-    
-    // 关键修复：禁用中断防止文件操作被重入
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
-    
-    // Write all data at once
+    // 直接写入，移除中断禁用避免影响SD卡DMA
     res = f_write(&g_audio_file, data, size, &bytes_written);
-    
-    // 确保写入操作完成 (内存屏障)
-    __DSB();
-    __ISB();
-    
-    // 恢复中断状态
-    __set_PRIMASK(primask);
     
     if (res == FR_OK && bytes_written == size) {
         // Success - update counters
@@ -189,50 +142,19 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         
         // Sync periodically instead of after every write
         if (writes_since_sync >= SYNC_INTERVAL) {
-            // 实现安全的同步操作，带重试机制
-            bool sync_success = false;
-            int retry_count = 0;
-            const int MAX_SYNC_RETRIES = 3;
+            // 暂时禁用周期性同步以避免FR_INVALID_OBJECT错误
+            // 只在录音停止时进行最终同步
+            writes_since_sync = 0;  // 重置计数器
             
-            while (!sync_success && retry_count < MAX_SYNC_RETRIES) {
-                // 禁用中断进行同步操作
-                uint32_t sync_primask = __get_PRIMASK();
-                __disable_irq();
-                
-                // 在同步前验证文件对象
-                if (g_audio_file.obj.fs == NULL || g_audio_file.flag == 0) {
-                    __set_PRIMASK(sync_primask);
-                    SHELL_LOG_USER_ERROR("File object invalid before sync attempt %d", retry_count + 1);
-                    break;
+            // 可选：每隔一段时间检查SD卡状态
+            static uint32_t last_sd_check = 0;
+            uint32_t current_time = HAL_GetTick();
+            if (current_time - last_sd_check > 5000) {  // 每5秒检查一次
+                if (is_sd_card_ready_for_write() != 0) {
+                    SHELL_LOG_USER_WARNING("SD card status check failed during recording");
+                    // 不立即停止，继续录音，让用户决定
                 }
-                
-                FRESULT sync_res = f_sync(&g_audio_file);
-                
-                // 内存屏障确保同步完成
-                __DSB();
-                __ISB();
-                
-                // 恢复中断
-                __set_PRIMASK(sync_primask);
-                
-                if (sync_res == FR_OK) {
-                    sync_success = true;
-                    writes_since_sync = 0;
-                } else {
-                    retry_count++;
-                    SHELL_LOG_USER_ERROR("Sync attempt %d failed, FRESULT: %d", retry_count, sync_res);
-                    
-                    if (retry_count < MAX_SYNC_RETRIES) {
-                        // 短暂延迟后重试
-                        vTaskDelay(pdMS_TO_TICKS(1));
-                    }
-                }
-            }
-            
-            if (!sync_success) {
-                SHELL_LOG_USER_ERROR("All sync attempts failed, continuing without sync");
-                // 重置计数器，避免连续失败
-                writes_since_sync = 0;
+                last_sd_check = current_time;
             }
         }
         
