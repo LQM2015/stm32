@@ -78,16 +78,31 @@ static void generate_filename(char* filename, size_t size)
  * @param size: Data size in bytes
  * @retval 0: Success, -1: Error
  */
+/**
+ * @brief Write audio data to SD card with periodic sync
+ * @param data: Audio data buffer
+ * @param size: Data size in bytes
+ * @retval 0: Success, -1: Error
+ */
 static int write_audio_data(uint16_t* data, uint32_t size)
 {
     UINT bytes_written;
     FRESULT res;
-    uint32_t remaining_size = size;
-    uint8_t* src_ptr = (uint8_t*)data;
-    const uint32_t MAX_WRITE_SIZE = 512; // Maximum write size per operation
+    static uint32_t writes_since_sync = 0;
+    const uint32_t SYNC_INTERVAL = 8; // Sync every 8 writes
+
+    // Check for reentrant calls - prevent interrupt collision
+    if (recorder.write_in_progress) {
+        SHELL_LOG_USER_ERROR("Write operation already in progress - skipping");
+        return -1;
+    }
+    
+    // Set write-in-progress flag
+    recorder.write_in_progress = true;
     
     if (!recorder.file_open) {
         SHELL_LOG_USER_ERROR("Cannot write data, file not open");
+        recorder.write_in_progress = false;
         return -1;
     }
     
@@ -95,34 +110,40 @@ static int write_audio_data(uint16_t* data, uint32_t size)
     if (recorder.file.obj.fs == NULL) {
         SHELL_LOG_USER_ERROR("File object invalid - filesystem pointer is NULL");
         recorder.file_open = false;
+        recorder.write_in_progress = false;
         return -1;
     }
     
-    // Write data in chunks of maximum 512 bytes
-    while (remaining_size > 0) {
-        uint32_t write_size = (remaining_size > MAX_WRITE_SIZE) ? MAX_WRITE_SIZE : remaining_size;
+    // Write all data at once
+    res = f_write(&recorder.file, data, size, &bytes_written);
+    
+    if (res == FR_OK && bytes_written == size) {
+        // Success - update counters
+        recorder.bytes_written += bytes_written;
+        writes_since_sync++;
         
-        res = f_write(&recorder.file, src_ptr, write_size, &bytes_written);
-        
-        if (res == FR_OK && bytes_written == write_size) {
-            // Success - update counters
-            recorder.bytes_written += bytes_written;
-            remaining_size -= bytes_written;
-            src_ptr += bytes_written;
-            
-            // Immediately sync after each write
+        // Sync periodically instead of after every write
+        if (writes_since_sync >= SYNC_INTERVAL) {
             FRESULT sync_res = f_sync(&recorder.file);
             if (sync_res != FR_OK) {
-                SHELL_LOG_USER_ERROR("File sync failed after write, FRESULT: %d", sync_res);
+                SHELL_LOG_USER_ERROR("Periodic sync failed, FRESULT: %d", sync_res);
+                recorder.write_in_progress = false;
                 return -1;
             }
-        } else {
-            SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, expected: %lu, written: %lu", 
-                                res, (unsigned long)write_size, (unsigned long)bytes_written);
-            return -1;
+            writes_since_sync = 0;
         }
+        
+        SHELL_LOG_USER_DEBUG("Write succeeded, %lu bytes written, writes since sync: %lu", 
+                            (unsigned long)bytes_written, (unsigned long)writes_since_sync);
+    } else {
+        SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, expected: %lu, written: %lu", 
+                            res, (unsigned long)size, (unsigned long)bytes_written);
+        recorder.write_in_progress = false;
+        return -1;
     }
     
+    // Clear write-in-progress flag before returning
+    recorder.write_in_progress = false;
     return 0;
 }
 
@@ -369,7 +390,7 @@ int audio_recorder_init(void)
     // Create audio processing thread
     const osThreadAttr_t audio_process_thread_attributes = {
         .name = "AudioProcess",
-        .stack_size = 512 * 4, // 2KB stack
+        .stack_size = 1024 * 4, // 4KB stack
         .priority = (osPriority_t) osPriorityHigh,
     };
     audio_process_thread_id = osThreadNew(audio_process_thread, NULL, &audio_process_thread_attributes);
@@ -519,6 +540,7 @@ int audio_recorder_start(void)
     
     recorder.file_open = true;
     recorder.bytes_written = 0;
+    recorder.write_in_progress = false;  // Initialize write protection flag
     
     // 验证文件是否真的创建成功 - 通过获取文件大小而不是重新打开
     FSIZE_t current_size = f_size(&recorder.file);
@@ -557,7 +579,7 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_DEBUG("SAI state after successful start: %d", HAL_SAI_GetState(&hsai_BlockA4));
     
     // Optional status check (enable by defining AUDIO_REC_VERBOSE)
-    HAL_Delay(20);
+    vTaskDelay(20);
     debug_sai_status();
     
     // 最终确认状态设置
@@ -612,7 +634,7 @@ int audio_recorder_stop(void)
         SHELL_LOG_USER_WARNING("First DMA stop attempt failed, result: %d", dma_result);
         
         // Wait a bit for any ongoing transfer to complete
-        HAL_Delay(10);
+        vTaskDelay(10);
         
         // Second attempt: Force abort
         SHELL_LOG_USER_INFO("Attempting to abort SAI DMA...");
@@ -631,7 +653,7 @@ int audio_recorder_stop(void)
     // Wait for DMA to fully stop
     uint32_t timeout = HAL_GetTick() + 100; // 100ms timeout
     while (HAL_SAI_GetState(&hsai_BlockA4) != HAL_SAI_STATE_READY && HAL_GetTick() < timeout) {
-        HAL_Delay(1);
+        vTaskDelay(1);
     }
     
     if (HAL_SAI_GetState(&hsai_BlockA4) != HAL_SAI_STATE_READY) {
@@ -653,7 +675,7 @@ int audio_recorder_stop(void)
         }
         
         // Wait a bit to ensure sync is complete
-        HAL_Delay(10);
+        vTaskDelay(10);
         
         // Attempt to close file with retry
         FRESULT close_result = FR_DISK_ERR;
@@ -695,7 +717,7 @@ int audio_recorder_stop(void)
                 }
                 
                 if (close_attempts < max_close_attempts) {
-                    HAL_Delay(50); // Wait before retry
+                    vTaskDelay(50); // Wait before retry
                 }
             }
         }
@@ -836,22 +858,28 @@ void audio_recorder_process(void)
     if (half_buffer_ready) {
         half_buffer_ready = false;
         // Non-cacheable region: no invalidate required
-        // Write first half of the buffer
+        // Write first half of the buffer using optimized write function
         if (write_audio_data(&audio_buffer[0], AUDIO_HALF_BUFFER_SIZE) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write first half of buffer, stopping recording.");
             audio_recorder_stop();
             recorder.state = AUDIO_REC_ERROR;
+            SHELL_LOG_USER_ERROR("State set to ERROR after first half write failure");
+        } else {
+            SHELL_LOG_USER_DEBUG("First half buffer written successfully, state: %d", recorder.state);
         }
     }
 
     if (buffer_ready) {
         buffer_ready = false;
         // Non-cacheable region: no invalidate required
-        // Write second half of the buffer
+        // Write second half of the buffer using optimized write function
         if (write_audio_data(&audio_buffer[AUDIO_BUFFER_SAMPLES / 2], AUDIO_HALF_BUFFER_SIZE) != 0) {
             SHELL_LOG_USER_ERROR("Failed to write second half of buffer, stopping recording.");
             audio_recorder_stop();
             recorder.state = AUDIO_REC_ERROR;
+            SHELL_LOG_USER_ERROR("State set to ERROR after second half write failure");
+        } else {
+            SHELL_LOG_USER_DEBUG("Second half buffer written successfully, state: %d", recorder.state);
         }
     }
 }
@@ -889,7 +917,7 @@ void audio_recorder_rx_half_complete_callback(void)
  */
 void audio_recorder_error_callback(void)
 {
-    SHELL_LOG_USER_ERROR("SAI error callback (state=%d)", recorder.state);
+    SHELL_LOG_USER_ERROR("SAI error callback triggered! (state=%d)", recorder.state);
     
     if (recorder.state == AUDIO_REC_RECORDING) {
         SHELL_LOG_USER_ERROR("SAI error during recording, stopping...");

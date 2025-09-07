@@ -273,7 +273,7 @@ int cmd_reboot(int argc, char *argv[])
     SHELL_LOG_SYS_WARNING("System rebooting...");
     
     SHELL_LOG_SYS_INFO("System rebooting in 100ms...");
-    HAL_Delay(100);
+    vTaskDelay(100);
     NVIC_SystemReset();
     return 0;
 }

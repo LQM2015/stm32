@@ -134,7 +134,7 @@ int fs_manager_remount(void)
     g_fs_status = FS_STATUS_NOT_MOUNTED;
     
     // 短暂延时
-    HAL_Delay(200);
+    vTaskDelay(200);
     
     // 重新挂载
     res = f_mount(&USERFatFS, USERPath, 1);

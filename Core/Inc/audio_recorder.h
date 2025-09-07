@@ -36,6 +36,7 @@ typedef struct {
     uint32_t bytes_written;
     uint32_t buffer_size;
     bool file_open;
+    bool write_in_progress;  // Flag to prevent reentrant writes
 } AudioRecorder_t;
 
 /* Exported constants --------------------------------------------------------*/
