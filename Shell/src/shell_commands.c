@@ -2858,12 +2858,6 @@ int cmd_test_write_loop(int argc, char **argv)
         return -1;
     }
     
-    // 检查SD卡是否准备好写入
-    if (audio_recorder_is_sd_ready_for_write() != 0) {
-        SHELL_LOG_USER_ERROR("SD card not ready for write operations");
-        return -1;
-    }
-    
     // 动态分配测试数据缓冲区 (避免栈溢出)
     uint8_t* test_data = (uint8_t*)pvPortMalloc(4096);
     if (test_data == NULL) {
@@ -2913,13 +2907,6 @@ int cmd_test_write_loop(int argc, char **argv)
     // 循环写入测试
     for (int i = 0; i < loops; i++) {
         UINT bytes_written;
-        
-        // 检查SD卡状态 (每10次检查一次以避免过度开销)
-        if (i % 10 == 0) {
-            if (audio_recorder_is_sd_ready_for_write() != 0) {
-                SHELL_LOG_USER_WARNING("SD card not ready at loop %d, continuing...", i + 1);
-            }
-        }
         
         // 验证文件对象有效性和内存完整性
         if (test_file->obj.fs == NULL) {
@@ -3129,12 +3116,6 @@ int cmd_test_write_single(int argc, char **argv)
     
     // 检查文件系统状态
     if (MOUNT_FILESYSTEM() != 0) {
-        return -1;
-    }
-    
-    // 检查SD卡是否准备好写入
-    if (audio_recorder_is_sd_ready_for_write() != 0) {
-        SHELL_LOG_USER_ERROR("SD card not ready for write operations");
         return -1;
     }
     

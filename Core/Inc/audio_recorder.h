@@ -84,7 +84,6 @@ uint32_t audio_recorder_get_bytes_written(void);
 const char* audio_recorder_get_filename(void);
 void audio_recorder_debug_status(void);
 int audio_recorder_check_sd_card(void);
-int audio_recorder_is_sd_ready_for_write(void);  // New function to check SD readiness
 
 /* Callback functions */
 void audio_recorder_rx_complete_callback(void);

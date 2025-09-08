@@ -44,27 +44,19 @@ __attribute__((section(".dma_buffer"), aligned(32)))
 #endif
 static uint16_t audio_buffer[AUDIO_BUFFER_SAMPLES]; // 16-bit samples interleaved multi-channel TDM
 
-// 队列数据结构定义 - 优化内存使用
+// 队列数据结构定义 - 简化设计，直接包含数据
 typedef struct {
-    uint16_t* data_ptr;    // 指向数据的指针（避免内嵌大数组）
+    uint16_t data[AUDIO_HALF_BUFFER_SIZE / 2];  // 直接内嵌数据缓冲区
     uint32_t data_size;    // 数据大小（字节）
     uint32_t timestamp;    // 时间戳
     bool is_half_buffer;   // true: 前半缓冲区, false: 后半缓冲区
     uint8_t padding[3];    // 对齐填充
 } __attribute__((aligned(32))) AudioDataItem_t;
 
-#define AUDIO_QUEUE_SIZE 4  // 减少队列深度以节省内存
-
-// 缓冲区池：只分配必要的独立缓冲区，不全部放在DMA区域
-// DMA安全区域只保留关键的音频缓冲区
-static uint16_t buffer_pool[AUDIO_QUEUE_SIZE][AUDIO_HALF_BUFFER_SIZE / 2] __attribute__((aligned(32)));
+#define AUDIO_QUEUE_SIZE 4  // 减少队列深度，每个项包含4KB数据
 
 static osMessageQueueId_t audio_data_queue = NULL;
 static osThreadId_t audio_process_thread_id = NULL;
-
-// 缓冲区池管理
-static uint32_t pool_free_mask = 0x0F;  // 4位掩码，对应4个缓冲区的使用状态
-static osMutexId_t pool_mutex = NULL;    // 保护缓冲区池的互斥锁
 
 // 降低SAI回调打印频次的计数器
 static uint32_t rx_complete_counter = 0;
@@ -83,98 +75,10 @@ static void monitor_sai_timing(void);
 static void reset_sai_timing_status(void);
 void audio_recorder_process(void);
 static int check_sd_card_status(void);
-static int check_sd_card_busy(void);
-static int is_sd_card_ready_for_write(void);
 static void audio_process_thread(void *argument);
 static int verify_file_exists(const char* filepath);
-static AudioDataItem_t* get_free_buffer_from_pool(void);
-static void return_buffer_to_pool(AudioDataItem_t* buffer);
-static void init_buffer_pool(void);
 
 /* Private functions ---------------------------------------------------------*/
-
-/**
- * @brief Initialize buffer pool management
- */
-static void init_buffer_pool(void)
-{
-    // 创建互斥锁保护缓冲区池
-    pool_mutex = osMutexNew(NULL);
-    if (pool_mutex == NULL) {
-        SHELL_LOG_USER_ERROR("Failed to create buffer pool mutex");
-        return;
-    }
-    
-    // 初始化缓冲区池 - 所有缓冲区都可用
-    pool_free_mask = 0x0F;  // 4个缓冲区全部可用
-    
-    // 清零所有缓冲区
-    memset(buffer_pool, 0, sizeof(buffer_pool));
-    __DSB();  // 确保内存清零完成
-    
-    SHELL_LOG_USER_INFO("Buffer pool initialized with %d buffers", AUDIO_QUEUE_SIZE);
-}
-
-/**
- * @brief Get a free buffer from the pool (thread-safe)
- * @retval Pointer to free buffer, NULL if no buffer available
- */
-static AudioDataItem_t* get_free_buffer_from_pool(void)
-{
-    AudioDataItem_t* buffer = NULL;
-    
-    // 在中断中使用非阻塞方式获取互斥锁
-    osStatus_t status = osMutexAcquire(pool_mutex, 0);
-    if (status != osOK) {
-        return NULL;  // 无法获取锁，返回NULL
-    }
-    
-    // 寻找第一个可用的缓冲区
-    for (int i = 0; i < AUDIO_QUEUE_SIZE; i++) {
-        if (pool_free_mask & (1 << i)) {
-            // 标记为已使用
-            pool_free_mask &= ~(1 << i);
-            
-            // 创建临时的AudioDataItem_t，指向缓冲区池中的数据
-            static AudioDataItem_t temp_items[AUDIO_QUEUE_SIZE];
-            buffer = &temp_items[i];
-            buffer->data_ptr = buffer_pool[i];  // 指向实际的数据缓冲区
-            break;
-        }
-    }
-    
-    osMutexRelease(pool_mutex);
-    return buffer;
-}
-
-/**
- * @brief Return a buffer to the pool (thread-safe)
- * @param buffer: Buffer to return
- */
-static void return_buffer_to_pool(AudioDataItem_t* buffer)
-{
-    if (buffer == NULL) return;
-    
-    osStatus_t status = osMutexAcquire(pool_mutex, osWaitForever);
-    if (status != osOK) {
-        SHELL_LOG_USER_ERROR("Failed to acquire pool mutex for buffer return");
-        return;
-    }
-    
-    // 通过数据指针计算缓冲区索引
-    for (int i = 0; i < AUDIO_QUEUE_SIZE; i++) {
-        if (buffer->data_ptr == buffer_pool[i]) {
-            // 标记为可用
-            pool_free_mask |= (1 << i);
-            
-            // 可选：清零缓冲区数据（调试用）
-            // memset(buffer_pool[i], 0, AUDIO_HALF_BUFFER_SIZE);
-            break;
-        }
-    }
-    
-    osMutexRelease(pool_mutex);
-}
 
 /**
  * @brief Generate filename based on audio parameters
@@ -242,24 +146,6 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         // Success - update counters
         recorder.bytes_written += bytes_written;
         writes_since_sync++;
-        
-        // Sync periodically instead of after every write
-        if (writes_since_sync >= SYNC_INTERVAL) {
-            // 暂时禁用周期性同步以避免FR_INVALID_OBJECT错误
-            // 只在录音停止时进行最终同步
-            writes_since_sync = 0;  // 重置计数器
-            
-            // 可选：每隔一段时间检查SD卡状态
-            static uint32_t last_sd_check = 0;
-            uint32_t current_time = HAL_GetTick();
-            if (current_time - last_sd_check > 5000) {  // 每5秒检查一次
-                if (is_sd_card_ready_for_write() != 0) {
-                    SHELL_LOG_USER_WARNING("SD card status check failed during recording");
-                    // 不立即停止，继续录音，让用户决定
-                }
-                last_sd_check = current_time;
-            }
-        }
         
         // SHELL_LOG_USER_DEBUG("Write succeeded, %lu bytes written, writes since sync: %lu", 
         //                     (unsigned long)bytes_written, (unsigned long)writes_since_sync);
@@ -438,81 +324,6 @@ static void reset_sai_timing_status(void)
 }
 
 /**
- * @brief Check if SD card is busy and cannot accept write operations
- * @retval 0: Ready for write, -1: Busy or error
- */
-static int check_sd_card_busy(void)
-{
-    // Check disk status first
-    DSTATUS disk_stat = disk_status(0);  // Drive 0 is SD card
-    
-    if (disk_stat & STA_NOINIT) {
-        SHELL_LOG_USER_WARNING("SD card not initialized");
-        return -1;
-    }
-    
-    if (disk_stat & STA_NODISK) {
-        SHELL_LOG_USER_ERROR("No SD card detected");
-        return -1;
-    }
-    
-    if (disk_stat & STA_PROTECT) {
-        SHELL_LOG_USER_ERROR("SD card is write protected");
-        return -1;
-    }
-    
-    // Additional check: try to get SD card state via HAL
-    extern SD_HandleTypeDef hsd1;  // Assuming this is your SD handle
-    HAL_SD_CardStateTypeDef card_state = HAL_SD_GetCardState(&hsd1);
-    
-    if (card_state != HAL_SD_CARD_TRANSFER) {
-        SHELL_LOG_USER_WARNING("SD card not in transfer state: %d", card_state);
-        return -1;
-    }
-    
-    return 0;  // Ready for write
-}
-
-/**
- * @brief Check if SD card is ready for write operations (comprehensive check)
- * @retval 0: Ready, -1: Not ready
- */
-static int is_sd_card_ready_for_write(void)
-{
-    // First check if card is busy
-    if (check_sd_card_busy() != 0) {
-        return -1;
-    }
-    
-    // Try a sync operation to see if disk is responsive
-    DRESULT ioctl_result = disk_ioctl(0, CTRL_SYNC, NULL);
-    
-    if (ioctl_result != RES_OK) {
-        SHELL_LOG_USER_WARNING("SD card sync check failed, DRESULT: %d", ioctl_result);
-        switch (ioctl_result) {
-            case RES_ERROR:
-                SHELL_LOG_USER_ERROR("SD card I/O error");
-                break;
-            case RES_WRPRT:
-                SHELL_LOG_USER_ERROR("SD card write protected");
-                break;
-            case RES_NOTRDY:
-                SHELL_LOG_USER_ERROR("SD card not ready");
-                break;
-            case RES_PARERR:
-                SHELL_LOG_USER_ERROR("SD card parameter error");
-                break;
-            default:
-                SHELL_LOG_USER_ERROR("SD card unknown error: %d", ioctl_result);
-                break;
-        }
-        return -1;
-    }
-    
-    return 0;  // Ready for write
-}
-
-/**
  * @brief Check SD card status and try to fix common issues
  * @retval 0: Success, -1: Error
  */
@@ -587,11 +398,8 @@ int audio_recorder_init(void)
     // Clear audio buffer
     memset(audio_buffer, 0, sizeof(audio_buffer));
 
-    // Initialize buffer pool management
-    init_buffer_pool();
-
     // Create message queue for audio data processing
-    audio_data_queue = osMessageQueueNew(AUDIO_QUEUE_SIZE, sizeof(AudioDataItem_t*), NULL);  // 注意：现在存储的是指针
+    audio_data_queue = osMessageQueueNew(AUDIO_QUEUE_SIZE, sizeof(AudioDataItem_t), NULL);
     if (audio_data_queue == NULL) {
         SHELL_LOG_USER_ERROR("Failed to create audio data queue");
         return -1;
@@ -601,7 +409,7 @@ int audio_recorder_init(void)
     // Create audio processing thread
     const osThreadAttr_t audio_process_thread_attributes = {
         .name = "AudioProcess",
-        .stack_size = 1024 * 4, // 4KB stack
+        .stack_size = 1024 * 8, // 增加到8KB栈，因为AudioDataItem_t包含大数组
         .priority = (osPriority_t) osPriorityHigh,
     };
     audio_process_thread_id = osThreadNew(audio_process_thread, NULL, &audio_process_thread_attributes);
@@ -654,21 +462,12 @@ int audio_recorder_reset(void)
     
     // Clear queue - remove any pending audio data items
     if (audio_data_queue != NULL) {
-        AudioDataItem_t* temp_item_ptr;
-        // 清空队列中的所有待处理数据，并将缓冲区返回到池中
-        while (osMessageQueueGet(audio_data_queue, &temp_item_ptr, NULL, 0) == osOK) {
-            // 将缓冲区返回到池中
-            return_buffer_to_pool(temp_item_ptr);
+        AudioDataItem_t temp_item;
+        // 清空队列中的所有待处理数据
+        while (osMessageQueueGet(audio_data_queue, &temp_item, NULL, 0) == osOK) {
+            // 数据已被丢弃
         }
         SHELL_LOG_USER_DEBUG("Audio data queue cleared");
-    }
-    
-    // 重置缓冲区池状态
-    if (pool_mutex != NULL) {
-        osMutexAcquire(pool_mutex, osWaitForever);
-        pool_free_mask = 0x0F;  // 4个缓冲区标记为可用
-        osMutexRelease(pool_mutex);
-        SHELL_LOG_USER_DEBUG("Buffer pool reset");
     }
     
     // Reset counters
@@ -1140,21 +939,6 @@ void audio_recorder_debug_status(void)
         SHELL_LOG_USER_ERROR("Audio queue is NULL!");
     }
     
-    // 显示缓冲区池状态
-    if (pool_mutex != NULL) {
-        osMutexAcquire(pool_mutex, osWaitForever);
-        uint32_t free_count = __builtin_popcount(pool_free_mask);  // 计算可用缓冲区数量
-        SHELL_LOG_USER_INFO("Buffer pool status: %lu/%d free (mask: 0x%02lX)", 
-                           free_count, AUDIO_QUEUE_SIZE, pool_free_mask);
-        
-        if (free_count <= 2) {
-            SHELL_LOG_USER_WARNING("Buffer pool nearly empty - potential data loss risk!");
-        }
-        osMutexRelease(pool_mutex);
-    } else {
-        SHELL_LOG_USER_ERROR("Buffer pool mutex is NULL!");
-    }
-    
     // Always check SD card status
     check_sd_card_status();
     
@@ -1184,62 +968,47 @@ int audio_recorder_check_sd_card(void)
 }
 
 /**
- * @brief Check if SD card is ready for write operations (public API)
- * @retval 0: Ready, -1: Not ready
- */
-int audio_recorder_is_sd_ready_for_write(void)
-{
-    return is_sd_card_ready_for_write();
-}
-
-/**
  * @brief Audio processing thread function
  * @param argument: Not used
  */
 static void audio_process_thread(void *argument)
 {
     (void)argument;
-    AudioDataItem_t* audio_item_ptr;
+    AudioDataItem_t audio_item;
     
     SHELL_LOG_USER_INFO("Audio processing thread started");
     
     for (;;) {
         // Wait for audio data from the queue (blocking)
-        osStatus_t status = osMessageQueueGet(audio_data_queue, &audio_item_ptr, NULL, osWaitForever);
+        osStatus_t status = osMessageQueueGet(audio_data_queue, &audio_item, NULL, osWaitForever);
         
-        if (status == osOK && audio_item_ptr != NULL) {
+        if (status == osOK) {
+            //SHELL_LOG_USER_DEBUG("Processing audio data: %lu bytes", (unsigned long)audio_item.data_size);
+            
             // Check if we're still recording
             if (recorder.state == AUDIO_REC_RECORDING) {
-                // Process the received audio data - 数据已经复制到队列项的独立缓冲区中
-                int write_result = write_audio_data(audio_item_ptr->data_ptr, audio_item_ptr->data_size);
+                // Process the received audio data
+                int write_result = write_audio_data(audio_item.data, audio_item.data_size);
                 
                 if (write_result == -1) {
                     // 真正的写入错误
                     SHELL_LOG_USER_ERROR("Failed to write %s buffer, stopping recording.", 
-                                        audio_item_ptr->is_half_buffer ? "first half" : "second half");
-                    // 将缓冲区返回到池中再停止录音
-                    return_buffer_to_pool(audio_item_ptr);
+                                        audio_item.is_half_buffer ? "first half" : "second half");
                     audio_recorder_stop();
                     recorder.state = AUDIO_REC_ERROR;
-                    continue;  // 继续处理其他队列项
                 } else if (write_result == -2) {
                     // 重入冲突，跳过但不设置错误状态
                     SHELL_LOG_USER_DEBUG("%s buffer write skipped due to reentry conflict",
-                                        audio_item_ptr->is_half_buffer ? "First half" : "Second half");
+                                        audio_item.is_half_buffer ? "First half" : "Second half");
                 } else {
                     // 写入成功
-                    // SHELL_LOG_USER_DEBUG("%s buffer written successfully at timestamp %lu",
-                    //                     audio_item_ptr->is_half_buffer ? "First half" : "Second half",
-                    //                     audio_item_ptr->timestamp);
+                    // SHELL_LOG_USER_DEBUG("%s buffer written successfully",
+                    //                     audio_item.is_half_buffer ? "First half" : "Second half");
                 }
             } else {
                 // 不在录音状态，丢弃数据
                 SHELL_LOG_USER_DEBUG("Discarding audio data - not in recording state (state=%d)", recorder.state);
             }
-            
-            // 处理完成后，将缓冲区返回到池中
-            return_buffer_to_pool(audio_item_ptr);
-            
         } else {
             SHELL_LOG_USER_WARNING("Failed to get audio data from queue, status: %d", status);
             // 短暂延时后继续
@@ -1280,40 +1049,31 @@ void audio_recorder_rx_complete_callback(void)
     }
     
     if (recorder.state == AUDIO_REC_RECORDING) {
-        // 从池中获取空闲缓冲区
-        AudioDataItem_t* audio_item = get_free_buffer_from_pool();
-        if (audio_item == NULL) {
-            // 没有可用缓冲区，数据丢失
-            static uint32_t pool_empty_count = 0;
-            pool_empty_count++;
-            if (pool_empty_count % 10 == 1) {  // 每10次打印一次警告
-                SHELL_LOG_USER_WARNING("Buffer pool empty in RX complete callback! Lost count: %lu", pool_empty_count);
-            }
-            return;
-        }
+        //SHELL_LOG_USER_DEBUG("RX complete callback triggered");
+        
+        // 准备队列数据项 - 后半缓冲区
+        AudioDataItem_t audio_item;
         
         // 复制DMA数据到独立缓冲区，避免被硬件覆盖
         uint16_t* source_ptr = &audio_buffer[AUDIO_BUFFER_SAMPLES / 2];  // 后半缓冲区
-        
-        // 使用DMA安全的内存复制，考虑缓存一致性
-        // 源数据在DMA安全区域，目标在普通RAM，需要确保数据完整性
-        memcpy(audio_item->data_ptr, source_ptr, AUDIO_HALF_BUFFER_SIZE);
+        memcpy(audio_item.data, source_ptr, AUDIO_HALF_BUFFER_SIZE);
         __DSB();  // 确保内存复制完成
         
-        audio_item->data_size = AUDIO_HALF_BUFFER_SIZE;
-        audio_item->timestamp = HAL_GetTick();
-        audio_item->is_half_buffer = false;  // 完整回调 = 后半缓冲区
+        audio_item.data_size = AUDIO_HALF_BUFFER_SIZE;
+        audio_item.timestamp = HAL_GetTick();
+        audio_item.is_half_buffer = false;  // 完整回调 = 后半缓冲区
         
         // 非阻塞方式推送到队列
         osStatus_t status = osMessageQueuePut(audio_data_queue, &audio_item, 0, 0);
         if (status != osOK) {
-            // 队列满了，返回缓冲区到池中
-            return_buffer_to_pool(audio_item);
+            // 队列满了，数据丢失
             static uint32_t queue_full_count = 0;
             queue_full_count++;
             if (queue_full_count % 10 == 1) {  // 每10次打印一次警告
                 SHELL_LOG_USER_WARNING("Audio queue full in RX complete callback! Lost count: %lu", queue_full_count);
             }
+        } else {
+            //SHELL_LOG_USER_DEBUG("Data queued successfully in RX complete");
         }
     }
 }
@@ -1330,35 +1090,22 @@ void audio_recorder_rx_half_complete_callback(void)
     }
     
     if (recorder.state == AUDIO_REC_RECORDING) {
-        // 从池中获取空闲缓冲区
-        AudioDataItem_t* audio_item = get_free_buffer_from_pool();
-        if (audio_item == NULL) {
-            // 没有可用缓冲区，数据丢失
-            static uint32_t pool_empty_count_half = 0;
-            pool_empty_count_half++;
-            if (pool_empty_count_half % 10 == 1) {  // 每10次打印一次警告
-                SHELL_LOG_USER_WARNING("Buffer pool empty in RX half callback! Lost count: %lu", pool_empty_count_half);
-            }
-            return;
-        }
+        // 准备队列数据项 - 前半缓冲区
+        AudioDataItem_t audio_item;
         
         // 复制DMA数据到独立缓冲区，避免被硬件覆盖
         uint16_t* source_ptr = &audio_buffer[0];  // 前半缓冲区
-        
-        // 使用DMA安全的内存复制，考虑缓存一致性
-        // 源数据在DMA安全区域，目标在普通RAM，需要确保数据完整性
-        memcpy(audio_item->data_ptr, source_ptr, AUDIO_HALF_BUFFER_SIZE);
+        memcpy(audio_item.data, source_ptr, AUDIO_HALF_BUFFER_SIZE);
         __DSB();  // 确保内存复制完成
         
-        audio_item->data_size = AUDIO_HALF_BUFFER_SIZE;
-        audio_item->timestamp = HAL_GetTick();
-        audio_item->is_half_buffer = true;   // 半完成回调 = 前半缓冲区
+        audio_item.data_size = AUDIO_HALF_BUFFER_SIZE;
+        audio_item.timestamp = HAL_GetTick();
+        audio_item.is_half_buffer = true;   // 半完成回调 = 前半缓冲区
         
         // 非阻塞方式推送到队列
         osStatus_t status = osMessageQueuePut(audio_data_queue, &audio_item, 0, 0);
         if (status != osOK) {
-            // 队列满了，返回缓冲区到池中
-            return_buffer_to_pool(audio_item);
+            // 队列满了，数据丢失
             static uint32_t queue_full_count_half = 0;
             queue_full_count_half++;
             if (queue_full_count_half % 10 == 1) {  // 每10次打印一次警告
