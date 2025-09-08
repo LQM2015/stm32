@@ -131,7 +131,7 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         recorder.write_in_progress = false;
         return -1;
     }
-    
+    vTaskDelay(4); // 延时以确保文件系统稳定
     // 直接写入，移除中断禁用避免影响SD卡DMA
     res = f_write(&g_audio_file, data, size, &bytes_written);
     
