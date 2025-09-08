@@ -2763,6 +2763,22 @@ int cmd_audio_reset(int argc, char *argv[])
 }
 
 /**
+ * @brief Measure external I2S/TDM clock frequency to diagnose timing issues
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_measure_clock(int argc, char *argv[])
+{
+    SHELL_LOG_USER_INFO("Starting external clock frequency measurement...");
+    SHELL_LOG_USER_INFO("This will take ~5-10 seconds to complete");
+    
+    audio_recorder_measure_clock();
+    
+    return 0;
+}
+
+/**
  * @brief Show audio recording status command
  * @param argc argument count
  * @param argv argument vector
@@ -2808,6 +2824,8 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
                  audio_reset, cmd_audio_reset, reset audio recorder to clean state);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  audio_status, cmd_audio_status, show audio recording status);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_measure_clock, cmd_audio_measure_clock, measure external I2S/TDM clock frequency);
 
 /* =================================================================== */
 /* File Write Performance Test Commands                               */

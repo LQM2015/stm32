@@ -53,7 +53,7 @@ typedef struct {
     uint8_t padding[3];    // 对齐填充
 } __attribute__((aligned(32))) AudioDataItem_t;
 
-#define AUDIO_QUEUE_SIZE 4  // 减少队列深度，每个项包含4KB数据
+#define AUDIO_QUEUE_SIZE 6  // 减少队列深度，每个项包含4KB数据
 
 static osMessageQueueId_t audio_data_queue = NULL;
 static osThreadId_t audio_process_thread_id = NULL;
@@ -77,6 +77,7 @@ void audio_recorder_process(void);
 static int check_sd_card_status(void);
 static void audio_process_thread(void *argument);
 static int verify_file_exists(const char* filepath);
+static void measure_external_clock_frequency(void);
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -111,8 +112,8 @@ static int write_audio_data(uint16_t* data, uint32_t size)
 {
     UINT bytes_written;
     FRESULT res;
-    static uint32_t writes_since_sync = 0;
-    const uint32_t SYNC_INTERVAL = 16; // 增加同步间隔，降低同步频率 (从8改为16)
+
+
 
     // Check for reentrant calls - prevent interrupt collision
     if (recorder.write_in_progress) {
@@ -145,10 +146,7 @@ static int write_audio_data(uint16_t* data, uint32_t size)
     if (res == FR_OK && bytes_written == size) {
         // Success - update counters
         recorder.bytes_written += bytes_written;
-        writes_since_sync++;
-        
-        // SHELL_LOG_USER_DEBUG("Write succeeded, %lu bytes written, writes since sync: %lu", 
-        //                     (unsigned long)bytes_written, (unsigned long)writes_since_sync);
+
     } else {
         SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, expected: %lu, written: %lu", 
                             res, (unsigned long)size, (unsigned long)bytes_written);
@@ -367,6 +365,100 @@ static int verify_file_exists(const char* filepath)
         SHELL_LOG_USER_WARNING("File %s does not exist, FRESULT: %d", filepath, res);
         return -1;
     }
+}
+
+/**
+ * @brief Measure actual external clock frequency by timing DMA callbacks
+ * @note This function starts a temporary recording session to measure the external clock
+ */
+static void measure_external_clock_frequency(void)
+{
+    SHELL_LOG_USER_INFO("=== EXTERNAL CLOCK FREQUENCY MEASUREMENT ===");
+    
+    if (recorder.state != AUDIO_REC_IDLE) {
+        SHELL_LOG_USER_WARNING("Cannot measure clock - recorder not idle (state: %d)", recorder.state);
+        return;
+    }
+    
+    // 备份原始计数器
+    uint32_t backup_rx_complete = rx_complete_counter;
+    uint32_t backup_rx_half = rx_half_counter;
+    
+    // 重置计数器
+    rx_complete_counter = 0;
+    rx_half_counter = 0;
+    
+    SHELL_LOG_USER_INFO("Starting temporary measurement session...");
+    SHELL_LOG_USER_INFO("Expected timing: 256ms per complete callback (4096 samples @ 16kHz)");
+    
+    // 临时开始录音，但不打开文件
+    recorder.state = AUDIO_REC_RECORDING;
+    
+    uint32_t start_time = HAL_GetTick();
+    SHELL_LOG_USER_INFO("Measurement start time: %lu ms", start_time);
+    
+    // 启动SAI DMA
+    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4, (uint8_t*)audio_buffer, AUDIO_BUFFER_SAMPLES);
+    if (sai_result != HAL_OK) {
+        SHELL_LOG_USER_ERROR("Failed to start SAI for measurement, result: %d", sai_result);
+        recorder.state = AUDIO_REC_IDLE;
+        return;
+    }
+    
+    SHELL_LOG_USER_INFO("SAI started, waiting for 5 complete callbacks...");
+    
+    // 等待5个完整的回调来测量时间
+    while (rx_complete_counter < 5) {
+        vTaskDelay(100);  // 100ms检查间隔
+        
+        // 超时保护 - 20秒
+        if ((HAL_GetTick() - start_time) > 20000) {
+            SHELL_LOG_USER_ERROR("Measurement timeout - no external clock detected");
+            break;
+        }
+    }
+    
+    uint32_t end_time = HAL_GetTick();
+    uint32_t elapsed_ms = end_time - start_time;
+    
+    // 停止SAI
+    HAL_SAI_DMAStop(&hsai_BlockA4);
+    recorder.state = AUDIO_REC_IDLE;
+    
+    SHELL_LOG_USER_INFO("Measurement complete:");
+    SHELL_LOG_USER_INFO("- Elapsed time: %lu ms", elapsed_ms);
+    SHELL_LOG_USER_INFO("- Complete callbacks: %lu", rx_complete_counter);
+    SHELL_LOG_USER_INFO("- Half callbacks: %lu", rx_half_counter);
+    
+    if (rx_complete_counter >= 2) {
+        // 计算平均时间间隔（整数运算）
+        uint32_t avg_interval_ms = elapsed_ms / rx_complete_counter;
+        uint32_t measured_rate_hz = (4096 * 1000) / avg_interval_ms;  // 4096 samples * 1000ms / interval_ms
+        
+        SHELL_LOG_USER_INFO("Average callback interval: %lu ms", avg_interval_ms);
+        SHELL_LOG_USER_INFO("Calculated external sample rate: %lu Hz", measured_rate_hz);
+        SHELL_LOG_USER_INFO("Expected: 256 ms interval, 16000 Hz rate");
+        
+        if (measured_rate_hz < 8000) {
+            SHELL_LOG_USER_ERROR("PROBLEM: External clock rate too low!");
+            SHELL_LOG_USER_ERROR("Possible causes:");
+            SHELL_LOG_USER_ERROR("1. External I2S/TDM clock source not running");
+            SHELL_LOG_USER_ERROR("2. Wrong external clock frequency");
+            SHELL_LOG_USER_ERROR("3. SAI should be in master mode instead");
+        } else if (measured_rate_hz > 24000) {
+            SHELL_LOG_USER_WARNING("External clock rate higher than expected");
+        } else {
+            SHELL_LOG_USER_INFO("External clock rate within reasonable range");
+        }
+    } else {
+        SHELL_LOG_USER_ERROR("Insufficient callbacks for measurement - check external clock");
+    }
+    
+    // 恢复原始计数器
+    rx_complete_counter = backup_rx_complete;
+    rx_half_counter = backup_rx_half;
+    
+    SHELL_LOG_USER_INFO("=== MEASUREMENT COMPLETE ===");
 }
 
 /* Exported functions --------------------------------------------------------*/
@@ -965,6 +1057,15 @@ void audio_recorder_debug_status(void)
 int audio_recorder_check_sd_card(void)
 {
     return check_sd_card_status();
+}
+
+/**
+ * @brief Measure external I2S/TDM clock frequency
+ * @note This helps diagnose timing issues and verify external clock source
+ */
+void audio_recorder_measure_clock(void)
+{
+    measure_external_clock_frequency();
 }
 
 /**
