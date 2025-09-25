@@ -89,15 +89,15 @@ void MX_OCTOSPI2_Init(void)
   /* USER CODE END OCTOSPI2_Init 1 */
   hospi2.Instance = OCTOSPI2;
   hospi2.Init.FifoThreshold = 1;
-  hospi2.Init.DualQuad = HAL_OSPI_DUALQUAD_ENABLE;
-  hospi2.Init.MemoryType = HAL_OSPI_MEMTYPE_MICRON;
-  hospi2.Init.DeviceSize = 27;
-  hospi2.Init.ChipSelectHighTime = 1;
+  hospi2.Init.DualQuad = HAL_OSPI_DUALQUAD_DISABLE;  // Disable dual-quad for standard SPI mode
+  hospi2.Init.MemoryType = HAL_OSPI_MEMTYPE_MICRON;  // Use Micron type for QSPI Flash compatibility
+  hospi2.Init.DeviceSize = 24;  // 2^24 = 16MB (128Mbit) for W25Q128JV
+  hospi2.Init.ChipSelectHighTime = 8;  // Further increased CS high time for maximum reliability
   hospi2.Init.FreeRunningClock = HAL_OSPI_FREERUNCLK_DISABLE;
   hospi2.Init.ClockMode = HAL_OSPI_CLOCK_MODE_0;
   hospi2.Init.WrapSize = HAL_OSPI_WRAP_NOT_SUPPORTED;
-  hospi2.Init.ClockPrescaler = 2;
-  hospi2.Init.SampleShifting = HAL_OSPI_SAMPLE_SHIFTING_NONE;
+  hospi2.Init.ClockPrescaler = 16;  // Further reduced to 8 for slower ~8MHz SPI clock (maximum reliability)
+  hospi2.Init.SampleShifting = HAL_OSPI_SAMPLE_SHIFTING_NONE;  // No sample shifting for conservative timing
   hospi2.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_DISABLE;
   hospi2.Init.ChipSelectBoundary = 0;
   hospi2.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
@@ -109,7 +109,9 @@ void MX_OCTOSPI2_Init(void)
   }
   sOspiManagerCfg.ClkPort = 2;
   sOspiManagerCfg.NCSPort = 2;
-  sOspiManagerCfg.IOHighPort = HAL_OSPIM_IOPORT_2_HIGH;
+  sOspiManagerCfg.IOLowPort = HAL_OSPIM_IOPORT_2_LOW;   // For IO0, IO1 (DI/DO)
+  sOspiManagerCfg.IOHighPort = HAL_OSPIM_IOPORT_2_HIGH; // For IO2, IO3
+  sOspiManagerCfg.DQSPort = 0;  // Not used for standard SPI
   if (HAL_OSPIM_Config(&hospi2, &sOspiManagerCfg, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
   {
     Error_Handler();
@@ -237,28 +239,32 @@ void HAL_OSPI_MspInit(OSPI_HandleTypeDef* ospiHandle)
 
     __HAL_RCC_GPIOG_CLK_ENABLE();
     __HAL_RCC_GPIOF_CLK_ENABLE();
-    /**OCTOSPI2 GPIO Configuration
-    PG10     ------> OCTOSPIM_P2_IO6
-    PG11     ------> OCTOSPIM_P2_IO7
-    PG12     ------> OCTOSPIM_P2_NCS
-    PF4     ------> OCTOSPIM_P2_CLK
-    PG0     ------> OCTOSPIM_P2_IO4
-    PG1     ------> OCTOSPIM_P2_IO5
+    /**OCTOSPI2 GPIO Configuration (Based on actual hardware connections)
+    PG0     ------> OCTOSPIM_P2_IO0  (DI/MOSI for W25Q128JV)
+    PG1     ------> OCTOSPIM_P2_IO1  (DO/MISO for W25Q128JV)
+    PG10    ------> OCTOSPIM_P2_IO2
+    PG11    ------> OCTOSPIM_P2_IO3
+    PG12    ------> OCTOSPIM_P2_NCS  (CS# for W25Q128JV)
+    PF4     ------> OCTOSPIM_P2_CLK  (CLK for W25Q128JV)
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_12;
+    
+    // Configure PG12 (CS#) with AF3
+    GPIO_InitStruct.Pin = GPIO_PIN_12;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF3_OCTOSPIM_P2;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-    GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_0|GPIO_PIN_1;
+    // Configure PG0, PG1, PG10, PG11 (IO0-IO3) with AF9
+    GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_10|GPIO_PIN_11;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF9_OCTOSPIM_P2;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
+    // Configure PF4 (CLK) with AF9
     GPIO_InitStruct.Pin = GPIO_PIN_4;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -327,16 +333,15 @@ void HAL_OSPI_MspDeInit(OSPI_HandleTypeDef* ospiHandle)
     }
     __HAL_RCC_OSPI2_CLK_DISABLE();
 
-    /**OCTOSPI2 GPIO Configuration
-    PG10     ------> OCTOSPIM_P2_IO6
-    PG11     ------> OCTOSPIM_P2_IO7
-    PG12     ------> OCTOSPIM_P2_NCS
-    PF4     ------> OCTOSPIM_P2_CLK
-    PG0     ------> OCTOSPIM_P2_IO4
-    PG1     ------> OCTOSPIM_P2_IO5
+    /**OCTOSPI2 GPIO Configuration (Based on actual hardware connections)
+    PG0     ------> OCTOSPIM_P2_IO0  (DI/MOSI for W25Q128JV)
+    PG1     ------> OCTOSPIM_P2_IO1  (DO/MISO for W25Q128JV)
+    PG10    ------> OCTOSPIM_P2_IO2
+    PG11    ------> OCTOSPIM_P2_IO3
+    PG12    ------> OCTOSPIM_P2_NCS  (CS# for W25Q128JV)
+    PF4     ------> OCTOSPIM_P2_CLK  (CLK for W25Q128JV)
     */
-    HAL_GPIO_DeInit(GPIOG, GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_0
-                          |GPIO_PIN_1);
+    HAL_GPIO_DeInit(GPIOG, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_12);
 
     HAL_GPIO_DeInit(GPIOF, GPIO_PIN_4);
 

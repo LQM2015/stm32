@@ -6,6 +6,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "../Inc/audio_recorder.h"
+#include "../Inc/flash_storage.h"  // Add flash storage support
 #include "sai.h"
 #include "fatfs.h"
 #include "shell_log.h"
@@ -278,60 +279,88 @@ static void generate_filename(char* filename, size_t size)
  * @retval 0: Success, -1: Error
  */
 /**
- * @brief Write audio data to SD card with periodic sync
+ * @brief Write audio data to storage (TF card or Flash)
  * @param data: Audio data buffer
  * @param size: Data size in bytes
- * @retval 0: Success, -1: Error
+ * @retval 0: Success, -1: Error, -2: Reentry conflict
  */
 static int write_audio_data(uint16_t* data, uint32_t size)
 {
-    UINT bytes_written;
-    FRESULT res;
-
-
-
     // Check for reentrant calls - prevent interrupt collision
     if (recorder.write_in_progress) {
-        // 重入冲突：返回特殊值-2，区别于真正的写入错误-1
-        // 禁用频繁的错误日志，避免UART传输影响SD卡操作
-        // SHELL_LOG_USER_ERROR("Write operation already in progress - skipping");
-        return -2;  // 重入冲突
+        // Reentry conflict: return special value -2, different from real write error -1
+        return -2;  // Reentry conflict
     }
     
     // Set write-in-progress flag
     recorder.write_in_progress = true;
     
-    if (!recorder.file_open) {
-        SHELL_LOG_USER_ERROR("Cannot write data, file not open");
-        recorder.write_in_progress = false;
-        return -1;
-    }
+    int result = 0;
     
-    // 简化的文件对象有效性检查 - 只检查关键字段
-    if (g_audio_file.obj.fs == NULL) {
-        SHELL_LOG_USER_ERROR("File object invalid - filesystem pointer is NULL");
-        recorder.file_open = false;
-        recorder.write_in_progress = false;
-        return -1;
-    }
-    vTaskDelay(4); // 延时以确保文件系统稳定
-    // 直接写入，移除中断禁用避免影响SD卡DMA
-    res = f_write(&g_audio_file, data, size, &bytes_written);
-    
-    if (res == FR_OK && bytes_written == size) {
-        // Success - update counters
-        recorder.bytes_written += bytes_written;
-
+    if (recorder.use_flash_recording) {
+        // Flash recording mode
+        SHELL_LOG_USER_DEBUG("Writing %lu bytes to Flash", (unsigned long)size);
+        
+        FlashStorageStatus_t flash_status = flash_storage_write_audio_data((uint8_t*)data, size);
+        
+        if (flash_status == FLASH_STORAGE_OK) {
+            recorder.flash_bytes_written += size;
+            SHELL_LOG_USER_DEBUG("Flash write successful, total: %lu bytes", 
+                                (unsigned long)recorder.flash_bytes_written);
+        } else if (flash_status == FLASH_STORAGE_FULL) {
+            SHELL_LOG_USER_WARNING("Flash is full! Written: %lu bytes", 
+                                  (unsigned long)recorder.flash_bytes_written);
+            recorder.write_in_progress = false;
+            
+            if (recorder.flash_auto_stop) {
+                SHELL_LOG_USER_INFO("Auto-stopping recording due to full Flash");
+                // Set flag to stop recording in the main thread
+                recorder.state = AUDIO_REC_STOPPING;
+            }
+            return -1;  // Flash full is treated as error for flow control
+        } else {
+            SHELL_LOG_USER_ERROR("Flash write failed, status: %d", flash_status);
+            recorder.write_in_progress = false;
+            return -1;
+        }
     } else {
-        SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, expected: %lu, written: %lu", 
-                            res, (unsigned long)size, (unsigned long)bytes_written);
-        recorder.write_in_progress = false;
-        return -1;
+        // Traditional TF card recording mode
+        UINT bytes_written;
+        FRESULT res;
+        
+        if (!recorder.file_open) {
+            SHELL_LOG_USER_ERROR("Cannot write data, file not open");
+            recorder.write_in_progress = false;
+            return -1;
+        }
+        
+        // Simple file object validity check
+        if (g_audio_file.obj.fs == NULL) {
+            SHELL_LOG_USER_ERROR("File object invalid - filesystem pointer is NULL");
+            recorder.file_open = false;
+            recorder.write_in_progress = false;
+            return -1;
+        }
+        
+        vTaskDelay(4); // Delay to ensure filesystem stability
+        
+        // Write directly, remove interrupt disable to avoid affecting SD card DMA
+        res = f_write(&g_audio_file, data, size, &bytes_written);
+        
+        if (res == FR_OK && bytes_written == size) {
+            // Success - update counters
+            recorder.bytes_written += bytes_written;
+        } else {
+            SHELL_LOG_USER_ERROR("Write failed, FRESULT: %d, expected: %lu, written: %lu", 
+                                res, (unsigned long)size, (unsigned long)bytes_written);
+            recorder.write_in_progress = false;
+            return -1;
+        }
     }
     
     // Clear write-in-progress flag before returning
     recorder.write_in_progress = false;
-    return 0;
+    return result;
 }
 
 /**
@@ -681,8 +710,22 @@ int audio_recorder_init(void)
     recorder.bytes_written = 0;
     recorder.file_open = false;
     
+    // Initialize Flash recording fields
+    recorder.use_flash_recording = false;  // Default to TF card recording
+    recorder.flash_bytes_written = 0;
+    recorder.flash_auto_stop = true;       // Auto-stop when Flash is full
+    
     SHELL_LOG_USER_INFO("Config: %d channels, %d-bit, %d Hz, buffer size: %lu", 
            recorder.channels, recorder.bit_depth, recorder.sample_rate, (unsigned long)recorder.buffer_size);
+    
+    // Initialize Flash storage
+    SHELL_LOG_USER_INFO("Initializing Flash storage...");
+    FlashStorageStatus_t flash_status = flash_storage_init();
+    if (flash_status != FLASH_STORAGE_OK) {
+        SHELL_LOG_USER_WARNING("Flash storage initialization failed, Flash recording disabled");
+    } else {
+        SHELL_LOG_USER_INFO("Flash storage initialized successfully");
+    }
     
     // Clear audio buffer
     memset(audio_buffer, 0, sizeof(audio_buffer));
@@ -1307,8 +1350,10 @@ static void audio_process_thread(void *argument)
                     // 真正的写入错误
                     SHELL_LOG_USER_ERROR("Failed to write %s buffer, stopping recording.", 
                                         audio_item.is_half_buffer ? "first half" : "second half");
-                    audio_recorder_stop();
-                    recorder.state = AUDIO_REC_ERROR;
+                    int stop_result = audio_recorder_stop();
+                    if (stop_result != 0) {
+                        recorder.state = AUDIO_REC_ERROR;
+                    }
                 } else if (write_result == -2) {
                     // 重入冲突，跳过但不设置错误状态
                     SHELL_LOG_USER_DEBUG("%s buffer write skipped due to reentry conflict",
@@ -1490,5 +1535,223 @@ void audio_recorder_error_callback(void)
         // }
         
         SHELL_LOG_USER_ERROR("Recording stopped due to SAI error");
+    }
+}
+
+/* Flash-based recording functions -------------------------------------------*/
+
+/**
+ * @brief Start recording to Flash instead of TF card
+ * @retval 0: Success, -1: Error
+ */
+int audio_recorder_start_flash_recording(void)
+{
+    SHELL_LOG_USER_INFO("Starting Flash-based audio recording...");
+    
+    if (recorder.state != AUDIO_REC_IDLE) {
+        SHELL_LOG_USER_WARNING("Recorder not in idle state (%d), attempting force reset...", recorder.state);
+        audio_recorder_reset();
+    }
+    
+    // Check Flash availability
+    if (!flash_storage_get_available_space()) {
+        SHELL_LOG_USER_ERROR("Flash storage not available or full");
+        return -1;
+    }
+    
+    // Generate filename for later use
+    generate_filename(recorder.filename, sizeof(recorder.filename));
+    SHELL_LOG_USER_INFO("Generated filename for later copy: %s", recorder.filename);
+    
+    // Configure recorder for Flash mode
+    recorder.use_flash_recording = true;
+    recorder.flash_bytes_written = 0;
+    recorder.flash_auto_stop = true;
+    recorder.file_open = false;  // No file open in Flash mode
+    recorder.bytes_written = 0;
+    
+    // Set state and start SAI
+    recorder.state = AUDIO_REC_FLASH_RECORDING;
+    
+    // Reset SAI timing status and clear any error flags
+    reset_sai_timing_status();
+    
+    // Ensure SAI instance is aligned with the current audio profile
+    MX_SAI4_Init();
+    
+    // Clear audio buffer
+    memset(audio_buffer, 0, sizeof(audio_buffer));
+    
+    SHELL_LOG_USER_INFO("Starting SAI DMA reception for Flash recording...");
+    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4,
+                                                      (uint8_t*)audio_buffer,
+                                                      audio_recorder_get_total_buffer_samples());
+    
+    if (sai_result != HAL_OK) {
+        SHELL_LOG_USER_ERROR("Failed to start SAI DMA reception, HAL result: %d", sai_result);
+        recorder.state = AUDIO_REC_ERROR;
+        return -1;
+    }
+    
+    uint32_t available_space = flash_storage_get_available_space();
+    SHELL_LOG_USER_INFO("Flash recording started successfully, available space: %lu MB", 
+                       available_space / (1024 * 1024));
+    
+    return 0;
+}
+
+/**
+ * @brief Stop Flash recording and copy data to TF card
+ * @retval 0: Success, -1: Error
+ */
+int audio_recorder_stop_and_copy_to_tf(void)
+{
+    SHELL_LOG_USER_INFO("Stopping Flash recording and copying to TF card...");
+    
+    if (recorder.state != AUDIO_REC_FLASH_RECORDING) {
+        SHELL_LOG_USER_WARNING("Not in Flash recording state, current: %d", recorder.state);
+        return -1;
+    }
+    
+    recorder.state = AUDIO_REC_STOPPING;
+    
+    // Stop SAI DMA
+    HAL_StatusTypeDef dma_result = HAL_SAI_DMAStop(&hsai_BlockA4);
+    if (dma_result != HAL_OK) {
+        SHELL_LOG_USER_WARNING("SAI DMA stop failed, result: %d", dma_result);
+        // Try abort
+        HAL_SAI_Abort(&hsai_BlockA4);
+    }
+    
+    // Wait for DMA to stop
+    uint32_t timeout = HAL_GetTick() + 100;
+    while (HAL_SAI_GetState(&hsai_BlockA4) != HAL_SAI_STATE_READY && HAL_GetTick() < timeout) {
+        vTaskDelay(1);
+    }
+    
+    SHELL_LOG_USER_INFO("Flash recording stopped. Total bytes in Flash: %lu", 
+                       (unsigned long)recorder.flash_bytes_written);
+    
+    if (recorder.flash_bytes_written == 0) {
+        SHELL_LOG_USER_WARNING("No data to copy from Flash");
+        recorder.state = AUDIO_REC_IDLE;
+        return 0;
+    }
+    
+    // Check SD card status
+    if (check_sd_card_status() != 0) {
+        SHELL_LOG_USER_ERROR("SD card not ready for copying");
+        recorder.state = AUDIO_REC_ERROR;
+        return -1;
+    }
+    
+    recorder.state = AUDIO_REC_COPYING_TO_TF;
+    
+    // Copy Flash data to TF card
+    SHELL_LOG_USER_INFO("Copying %lu bytes from Flash to TF card...", 
+                       (unsigned long)recorder.flash_bytes_written);
+    
+    FlashStorageStatus_t copy_status = flash_storage_copy_to_tf_card(recorder.filename);
+    
+    if (copy_status == FLASH_STORAGE_OK) {
+        SHELL_LOG_USER_INFO("Successfully copied Flash data to TF card: %s", recorder.filename);
+        recorder.bytes_written = recorder.flash_bytes_written;  // Update for status reporting
+        recorder.state = AUDIO_REC_IDLE;
+        return 0;
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to copy Flash data to TF card, status: %d", copy_status);
+        recorder.state = AUDIO_REC_ERROR;
+        return -1;
+    }
+}
+
+/**
+ * @brief Check if Flash is full
+ * @retval bool True if full, false otherwise
+ */
+bool audio_recorder_is_flash_full(void)
+{
+    return flash_storage_is_full();
+}
+
+/**
+ * @brief Get Flash usage in bytes
+ * @retval uint32_t Bytes used in Flash
+ */
+uint32_t audio_recorder_get_flash_usage(void)
+{
+    return flash_storage_get_total_written();
+}
+
+/**
+ * @brief Check if Flash recording mode is enabled
+ * @retval bool True if using Flash, false if using TF card
+ */
+bool audio_recorder_is_using_flash(void)
+{
+    return recorder.use_flash_recording;
+}
+
+/**
+ * @brief Get current Flash recording information
+ * @param[out] info Pointer to structure to fill with info
+ * @retval 0: Success, -1: Error
+ */
+int audio_recorder_get_flash_info(AudioFlashInfo_t *info)
+{
+    if (!info) {
+        return -1;
+    }
+    
+    info->is_enabled = recorder.use_flash_recording;
+    info->bytes_written = recorder.flash_bytes_written;
+    info->total_capacity = FLASH_STORAGE_TOTAL_SIZE;
+    info->available_space = flash_storage_get_available_space();
+    info->is_full = flash_storage_is_full();
+    info->usage_percent = (recorder.flash_bytes_written * 100) / FLASH_STORAGE_TOTAL_SIZE;
+    
+    return 0;
+}
+
+/**
+ * @brief Set Flash recording mode
+ * @param enable True to enable Flash recording, false for TF card recording
+ * @retval 0: Success, -1: Error  
+ */
+int audio_recorder_set_flash_mode(bool enable)
+{
+    if (recorder.state != AUDIO_REC_IDLE) {
+        SHELL_LOG_USER_WARNING("Cannot change recording mode while active (state: %d)", recorder.state);
+        return -1;
+    }
+    
+    recorder.use_flash_recording = enable;
+    SHELL_LOG_USER_INFO("Recording mode set to: %s", enable ? "Flash" : "TF Card");
+    
+    return 0;
+}
+
+/**
+ * @brief Erase Flash for new recording
+ * @retval 0: Success, -1: Error
+ */
+int audio_recorder_erase_flash(void)
+{
+    if (recorder.state != AUDIO_REC_IDLE) {
+        SHELL_LOG_USER_ERROR("Cannot erase Flash while recording (state: %d)", recorder.state);
+        return -1;
+    }
+    
+    SHELL_LOG_USER_INFO("Erasing Flash for new recording...");
+    
+    FlashStorageStatus_t erase_status = flash_storage_erase_audio_area();
+    
+    if (erase_status == FLASH_STORAGE_OK) {
+        recorder.flash_bytes_written = 0;
+        SHELL_LOG_USER_INFO("Flash erased successfully");
+        return 0;
+    } else {
+        SHELL_LOG_USER_ERROR("Flash erase failed, status: %d", erase_status);
+        return -1;
     }
 }

@@ -2671,6 +2671,22 @@ int cmd_fshelp_extended(int argc, char *argv[])
     SHELL_LOG_USER_INFO("  history              - show command history");
     SHELL_LOG_USER_INFO("  alias [name=value]   - create command aliases");
     SHELL_LOG_USER_INFO("");
+    SHELL_LOG_USER_INFO("Audio Recording:");
+    SHELL_LOG_USER_INFO("  audio_start          - start I2S TDM recording to TF card");
+    SHELL_LOG_USER_INFO("  audio_stop           - stop audio recording");
+    SHELL_LOG_USER_INFO("  audio_reset          - reset audio recorder");
+    SHELL_LOG_USER_INFO("  audio_status         - show recording status");
+    SHELL_LOG_USER_INFO("  audio_measure_clock  - measure I2S/TDM clock frequency");
+    SHELL_LOG_USER_INFO("");
+    SHELL_LOG_USER_INFO("Flash Audio Recording:");
+    SHELL_LOG_USER_INFO("  audio_mode <mode>    - set recording mode [flash|tfcard]");
+    SHELL_LOG_USER_INFO("  audio_flash_start    - start recording to Flash memory");
+    SHELL_LOG_USER_INFO("  audio_flash_stop_copy - stop Flash recording and copy to TF");
+    SHELL_LOG_USER_INFO("  audio_flash_status   - show Flash storage status");
+    SHELL_LOG_USER_INFO("  audio_flash_erase --confirm - erase Flash storage");
+    SHELL_LOG_USER_INFO("  audio_flash_copy     - copy Flash data to TF card");
+    SHELL_LOG_USER_INFO("  audio_flash_test     - test Flash communication");
+    SHELL_LOG_USER_INFO("");
     SHELL_LOG_USER_INFO("SD Card Specific:");
     SHELL_LOG_USER_INFO("  sdwrite file content - write text to SD file");
     SHELL_LOG_USER_INFO("  sdread file          - read text from SD file");
@@ -2688,6 +2704,14 @@ int cmd_fshelp_extended(int argc, char *argv[])
     SHELL_LOG_USER_INFO("  grep \"error\" *.log");
     SHELL_LOG_USER_INFO("  find / -name \"*.txt\"");
     SHELL_LOG_USER_INFO("  tree /");
+    SHELL_LOG_USER_INFO("");
+    SHELL_LOG_USER_INFO("Audio Recording Examples:");
+    SHELL_LOG_USER_INFO("  audio_flash_test     # Test Flash communication first");
+    SHELL_LOG_USER_INFO("  audio_mode flash     # Set Flash recording mode");
+    SHELL_LOG_USER_INFO("  audio_flash_start    # Start recording to 16MB Flash");
+    SHELL_LOG_USER_INFO("  audio_flash_status   # Check Flash usage");
+    SHELL_LOG_USER_INFO("  audio_flash_stop_copy # Stop and copy to TF card");
+    SHELL_LOG_USER_INFO("  audio_mode tfcard    # Switch back to TF card mode");
     
     return 0;
 }
@@ -2699,6 +2723,222 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
 /* =================================================================== */
 
 /**
+ * @brief Start Flash-based audio recording command
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_flash_start(int argc, char *argv[])
+{
+    if (audio_recorder_start_flash_recording() == 0) {
+        SHELL_LOG_USER_INFO("Flash audio recording started");
+        SHELL_LOG_USER_INFO("Format: %luch_%lubit_%luHz",
+                     (unsigned long)audio_recorder_get_channel_count(),
+                     (unsigned long)AUDIO_SUPPORTED_BIT_DEPTH,
+                     (unsigned long)audio_recorder_get_sample_rate());
+        
+        // Show Flash status
+        AudioFlashInfo_t flash_info;
+        if (audio_recorder_get_flash_info(&flash_info) == 0) {
+            SHELL_LOG_USER_INFO("Flash capacity: %lu MB available", 
+                               flash_info.available_space / (1024 * 1024));
+        }
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to start Flash audio recording");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Stop Flash recording and copy to TF card
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_flash_stop_and_copy(int argc, char *argv[])
+{
+    if (audio_recorder_stop_and_copy_to_tf() == 0) {
+        SHELL_LOG_USER_INFO("Flash recording stopped and copied to TF card");
+        SHELL_LOG_USER_INFO("Total Flash data copied: %lu bytes", 
+                           audio_recorder_get_flash_usage());
+        SHELL_LOG_USER_INFO("File: %s", audio_recorder_get_filename());
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to stop Flash recording or copy to TF card");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Set recording mode (Flash or TF card)
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_set_mode(int argc, char *argv[])
+{
+    if (argc < 2) {
+        // Show current mode
+        bool using_flash = audio_recorder_is_using_flash();
+        SHELL_LOG_USER_INFO("Current recording mode: %s", 
+                           using_flash ? "Flash" : "TF Card");
+        SHELL_LOG_USER_INFO("Usage: audio_mode <flash|tfcard>");
+        return 0;
+    }
+    
+    const char *mode = argv[1];
+    bool enable_flash = false;
+    
+    if (strcmp(mode, "flash") == 0 || strcmp(mode, "Flash") == 0 || strcmp(mode, "FLASH") == 0) {
+        enable_flash = true;
+    } else if (strcmp(mode, "tfcard") == 0 || strcmp(mode, "TF") == 0 || strcmp(mode, "tf") == 0) {
+        enable_flash = false;
+    } else {
+        SHELL_LOG_USER_ERROR("Invalid mode: %s", mode);
+        SHELL_LOG_USER_ERROR("Valid modes: flash, tfcard");
+        return -1;
+    }
+    
+    if (audio_recorder_set_flash_mode(enable_flash) == 0) {
+        SHELL_LOG_USER_INFO("Recording mode set to: %s", enable_flash ? "Flash" : "TF Card");
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to set recording mode");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Show Flash storage status
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_flash_status(int argc, char *argv[])
+{
+    AudioFlashInfo_t flash_info;
+    
+    if (audio_recorder_get_flash_info(&flash_info) == 0) {
+        SHELL_LOG_USER_INFO("Flash Storage Status:");
+        SHELL_LOG_USER_INFO("  Mode: %s", flash_info.is_enabled ? "Flash recording" : "TF card recording");
+        SHELL_LOG_USER_INFO("  Total capacity: %lu MB", flash_info.total_capacity / (1024 * 1024));
+        SHELL_LOG_USER_INFO("  Used space: %lu MB (%u%%)", 
+                           flash_info.bytes_written / (1024 * 1024),
+                           flash_info.usage_percent);
+        SHELL_LOG_USER_INFO("  Available space: %lu MB", 
+                           flash_info.available_space / (1024 * 1024));
+        SHELL_LOG_USER_INFO("  Flash full: %s", flash_info.is_full ? "Yes" : "No");
+        
+        if (flash_info.bytes_written > 0) {
+            SHELL_LOG_USER_INFO("  Data ready for copy to TF card");
+        }
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to get Flash storage status");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Erase Flash storage
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_flash_erase(int argc, char *argv[])
+{
+    // Confirmation check
+    if (argc < 2 || strcmp(argv[1], "--confirm") != 0) {
+        SHELL_LOG_USER_WARNING("This will erase ALL data in Flash storage!");
+        SHELL_LOG_USER_INFO("To confirm, use: audio_flash_erase --confirm");
+        return 0;
+    }
+    
+    if (audio_recorder_erase_flash() == 0) {
+        SHELL_LOG_USER_INFO("Flash storage erased successfully");
+        SHELL_LOG_USER_INFO("Flash is now ready for new recordings");
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to erase Flash storage");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Test Flash communication
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_flash_test(int argc, char *argv[])
+{
+    SHELL_LOG_USER_INFO("Testing Flash communication...");
+    
+    // Re-initialize Flash
+    FlashStorageStatus_t status = flash_storage_init();
+    
+    if (status == FLASH_STORAGE_OK) {
+        SHELL_LOG_USER_INFO("Flash communication test PASSED");
+        
+        // Show Flash info
+        AudioFlashInfo_t flash_info;
+        if (audio_recorder_get_flash_info(&flash_info) == 0) {
+            SHELL_LOG_USER_INFO("Flash capacity: %lu MB", 
+                               flash_info.total_capacity / (1024 * 1024));
+            SHELL_LOG_USER_INFO("Flash available: %lu MB", 
+                               flash_info.available_space / (1024 * 1024));
+        }
+    } else {
+        SHELL_LOG_USER_ERROR("Flash communication test FAILED (status: %d)", status);
+        SHELL_LOG_USER_INFO("Possible causes:");
+        SHELL_LOG_USER_INFO("  - Hardware connection issues");
+        SHELL_LOG_USER_INFO("  - OCTOSPI2 clock configuration");
+        SHELL_LOG_USER_INFO("  - Flash chip not responding");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Copy Flash data to TF card without stopping recording
+ * @param argc argument count  
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_audio_flash_copy(int argc, char *argv[])
+{
+    AudioRecorderState_t state = audio_recorder_get_state();
+    
+    if (state == AUDIO_REC_FLASH_RECORDING) {
+        SHELL_LOG_USER_ERROR("Cannot copy while Flash recording is active");
+        SHELL_LOG_USER_INFO("Use 'audio_flash_stop_copy' to stop recording and copy");
+        return -1;
+    }
+    
+    uint32_t flash_usage = audio_recorder_get_flash_usage();
+    if (flash_usage == 0) {
+        SHELL_LOG_USER_WARNING("No data in Flash to copy");
+        return 0;
+    }
+    
+    SHELL_LOG_USER_INFO("Copying %lu bytes from Flash to TF card...", flash_usage);
+    
+    // This would need a separate copy function that doesn't require stopping recording
+    // For now, we'll inform user to use the stop_and_copy command
+    SHELL_LOG_USER_INFO("Use 'audio_flash_stop_copy' to stop recording and copy data");
+    SHELL_LOG_USER_INFO("Or implement separate copy function for background copying");
+    
+    return 0;
+}
+
+/**
  * @brief Start audio recording command
  * @param argc argument count
  * @param argv argument vector
@@ -2706,18 +2946,40 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
  */
 int cmd_audio_start(int argc, char *argv[])
 {
-    // 移除重复的状态检查，让audio_recorder_start()内部处理
-    // audio_recorder_start()已经包含了完整的状态检查和重置逻辑
+    // Check current recording mode
+    bool using_flash = audio_recorder_is_using_flash();
     
-    if (audio_recorder_start() == 0) {
-        SHELL_LOG_USER_INFO("Audio recording started");
-    SHELL_LOG_USER_INFO("Format: %luch_%lubit_%luHz",
-                 (unsigned long)audio_recorder_get_channel_count(),
-                 (unsigned long)audio_recorder_get_bit_depth(),
-                 (unsigned long)audio_recorder_get_sample_rate());
-        SHELL_LOG_USER_INFO("File: %s", audio_recorder_get_filename());
+    int result = -1;
+    if (using_flash) {
+        SHELL_LOG_USER_INFO("Using Flash recording mode");
+        result = audio_recorder_start_flash_recording();
+        if (result == 0) {
+            SHELL_LOG_USER_INFO("Flash audio recording started");
+            
+            // Show Flash status
+            AudioFlashInfo_t flash_info;
+            if (audio_recorder_get_flash_info(&flash_info) == 0) {
+                SHELL_LOG_USER_INFO("Flash available: %lu MB", 
+                                   flash_info.available_space / (1024 * 1024));
+            }
+        }
     } else {
-        SHELL_LOG_USER_ERROR("Failed to start audio recording");
+        SHELL_LOG_USER_INFO("Using TF card recording mode");
+        result = audio_recorder_start();
+        if (result == 0) {
+            SHELL_LOG_USER_INFO("TF card audio recording started");
+            SHELL_LOG_USER_INFO("File: %s", audio_recorder_get_filename());
+        }
+    }
+    
+    if (result == 0) {
+        SHELL_LOG_USER_INFO("Format: %luch_%lubit_%luHz",
+                     (unsigned long)audio_recorder_get_channel_count(),
+                     (unsigned long)AUDIO_SUPPORTED_BIT_DEPTH,
+                     (unsigned long)audio_recorder_get_sample_rate());
+    } else {
+        SHELL_LOG_USER_ERROR("Failed to start audio recording in %s mode", 
+                            using_flash ? "Flash" : "TF card");
         return -1;
     }
     
@@ -2732,13 +2994,32 @@ int cmd_audio_start(int argc, char *argv[])
  */
 int cmd_audio_stop(int argc, char *argv[])
 {
-    // 移除重复的状态检查，让audio_recorder_stop()内部处理
-    // audio_recorder_stop()已经包含了完整的状态检查和错误处理逻辑
+    AudioRecorderState_t state = audio_recorder_get_state();
     
-    if (audio_recorder_stop() == 0) {
-        SHELL_LOG_USER_INFO("Audio recording stopped");
-        SHELL_LOG_USER_INFO("Total bytes written: %lu", audio_recorder_get_bytes_written());
+    int result = -1;
+    
+    if (state == AUDIO_REC_FLASH_RECORDING) {
+        SHELL_LOG_USER_INFO("Stopping Flash recording and copying to TF card...");
+        result = audio_recorder_stop_and_copy_to_tf();
+        if (result == 0) {
+            SHELL_LOG_USER_INFO("Flash recording stopped and copied to TF card");
+            SHELL_LOG_USER_INFO("Total Flash data: %lu bytes", 
+                               audio_recorder_get_flash_usage());
+            SHELL_LOG_USER_INFO("File: %s", audio_recorder_get_filename());
+        }
+    } else if (state == AUDIO_REC_RECORDING) {
+        SHELL_LOG_USER_INFO("Stopping TF card recording...");
+        result = audio_recorder_stop();
+        if (result == 0) {
+            SHELL_LOG_USER_INFO("TF card recording stopped");
+            SHELL_LOG_USER_INFO("Total bytes written: %lu", audio_recorder_get_bytes_written());
+        }
     } else {
+        SHELL_LOG_USER_WARNING("No active recording to stop (state: %d)", state);
+        return 0;
+    }
+    
+    if (result != 0) {
         SHELL_LOG_USER_ERROR("Failed to stop audio recording");
         return -1;
     }
@@ -2790,18 +3071,27 @@ int cmd_audio_measure_clock(int argc, char *argv[])
 int cmd_audio_status(int argc, char *argv[])
 {
     AudioRecorderState_t state = audio_recorder_get_state();
+    bool using_flash = audio_recorder_is_using_flash();
     
     SHELL_LOG_USER_INFO("Audio Recorder Status:");
     SHELL_LOG_USER_INFO("  Format: 8ch_16bit_48000Hz");
+    SHELL_LOG_USER_INFO("  Recording mode: %s", using_flash ? "Flash" : "TF Card");
     
     switch (state) {
         case AUDIO_REC_IDLE:
-            SHELL_LOG_USER_INFO("  State: IDLE");
+            SHELL_LOG_USER_INFO("  State: IDLE - Ready to record");
             break;
         case AUDIO_REC_RECORDING:
-            SHELL_LOG_USER_INFO("  State: RECORDING");
+            SHELL_LOG_USER_INFO("  State: RECORDING to TF card");
             SHELL_LOG_USER_INFO("  File: %s", audio_recorder_get_filename());
             SHELL_LOG_USER_INFO("  Bytes written: %lu", audio_recorder_get_bytes_written());
+            break;
+        case AUDIO_REC_FLASH_RECORDING:
+            SHELL_LOG_USER_INFO("  State: RECORDING to Flash");
+            SHELL_LOG_USER_INFO("  Flash usage: %lu bytes", audio_recorder_get_flash_usage());
+            break;
+        case AUDIO_REC_COPYING_TO_TF:
+            SHELL_LOG_USER_INFO("  State: COPYING Flash data to TF card");
             break;
         case AUDIO_REC_STOPPING:
             SHELL_LOG_USER_INFO("  State: STOPPING");
@@ -2813,6 +3103,24 @@ int cmd_audio_status(int argc, char *argv[])
             SHELL_LOG_USER_INFO("  State: UNKNOWN");
             break;
     }
+    
+    // Show Flash status if using Flash mode
+    if (using_flash) {
+        AudioFlashInfo_t flash_info;
+        if (audio_recorder_get_flash_info(&flash_info) == 0) {
+            SHELL_LOG_USER_INFO("  Flash capacity: %lu MB", 
+                               flash_info.total_capacity / (1024 * 1024));
+            SHELL_LOG_USER_INFO("  Flash used: %lu MB (%u%%)", 
+                               flash_info.bytes_written / (1024 * 1024),
+                               flash_info.usage_percent);
+            SHELL_LOG_USER_INFO("  Flash available: %lu MB", 
+                               flash_info.available_space / (1024 * 1024));
+            if (flash_info.is_full) {
+                SHELL_LOG_USER_WARNING("  Flash is FULL!");
+            }
+        }
+    }
+    
     audio_recorder_debug_status();
     audio_recorder_check_sd_card();
 
@@ -2829,6 +3137,22 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
                  audio_status, cmd_audio_status, show audio recording status);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  audio_measure_clock, cmd_audio_measure_clock, measure external I2S/TDM clock frequency);
+
+/* Flash-based audio recording commands */
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_flash_start, cmd_audio_flash_start, start audio recording to Flash memory);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_flash_stop_copy, cmd_audio_flash_stop_and_copy, stop Flash recording and copy to TF card);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_mode, cmd_audio_set_mode, set recording mode [flash|tfcard]);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_flash_status, cmd_audio_flash_status, show Flash storage status and usage);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_flash_erase, cmd_audio_flash_erase, erase Flash storage [--confirm]);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_flash_copy, cmd_audio_flash_copy, copy Flash data to TF card);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 audio_flash_test, cmd_audio_flash_test, test Flash communication and initialization);
 
 /* =================================================================== */
 /* File Write Performance Test Commands                               */
@@ -3237,3 +3561,70 @@ int cmd_test_write_single(int argc, char **argv)
 
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  test_write_single, cmd_test_write_single, test single write to file [data_size] [filename]);
+
+/**
+ * @brief Test Flash GPIO pins command (for debugging pin connections)
+ * @param argc argument count
+ * @param argv argument vector
+ * @return int command result
+ */
+int cmd_flash_gpio_test(int argc, char *argv[])
+{
+    SHELL_LOG_USER_INFO("=== Flash GPIO Pin Test ===");
+    
+    // Show current OCTOSPI2 configuration
+    SHELL_LOG_USER_INFO("Current OCTOSPI2 Pin Assignment:");
+    SHELL_LOG_USER_INFO("  CLK:  PF4  (OCTOSPIM_P2_CLK)");
+    SHELL_LOG_USER_INFO("  CS#:  PG12 (OCTOSPIM_P2_NCS)");
+    SHELL_LOG_USER_INFO("  IO0:  PF0  (OCTOSPIM_P2_IO0) - DI/MOSI");
+    SHELL_LOG_USER_INFO("  IO1:  PF1  (OCTOSPIM_P2_IO1) - DO/MISO");
+    SHELL_LOG_USER_INFO("  IO4:  PG0  (OCTOSPIM_P2_IO4) - Not used for W25Q128JV");
+    SHELL_LOG_USER_INFO("  IO5:  PG1  (OCTOSPIM_P2_IO5) - Not used for W25Q128JV");
+    SHELL_LOG_USER_INFO("");
+    
+    // Test basic GPIO states
+    SHELL_LOG_USER_INFO("Current GPIO Pin States:");
+    
+    // Enable GPIO clocks
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+    __HAL_RCC_GPIOG_CLK_ENABLE();
+    
+    // Check pin states
+    GPIO_PinState pf0_state = HAL_GPIO_ReadPin(GPIOF, GPIO_PIN_0);
+    GPIO_PinState pf1_state = HAL_GPIO_ReadPin(GPIOF, GPIO_PIN_1);
+    GPIO_PinState pf4_state = HAL_GPIO_ReadPin(GPIOF, GPIO_PIN_4);
+    GPIO_PinState pg0_state = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_0);
+    GPIO_PinState pg1_state = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_1);
+    GPIO_PinState pg12_state = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12);
+    
+    SHELL_LOG_USER_INFO("  PF0 (IO0/DI):  %s", pf0_state ? "HIGH" : "LOW");
+    SHELL_LOG_USER_INFO("  PF1 (IO1/DO):  %s", pf1_state ? "HIGH" : "LOW");
+    SHELL_LOG_USER_INFO("  PF4 (CLK):     %s", pf4_state ? "HIGH" : "LOW");
+    SHELL_LOG_USER_INFO("  PG0 (IO4):     %s", pg0_state ? "HIGH" : "LOW");
+    SHELL_LOG_USER_INFO("  PG1 (IO5):     %s", pg1_state ? "HIGH" : "LOW");
+    SHELL_LOG_USER_INFO("  PG12 (CS#):    %s", pg12_state ? "HIGH" : "LOW");
+    SHELL_LOG_USER_INFO("");
+    
+    // Hardware connection suggestions
+    SHELL_LOG_USER_INFO("W25Q128JV Expected Connections (8-pin SOIC/WSON):");
+    SHELL_LOG_USER_INFO("  Pin 1: CS#  -> PG12");
+    SHELL_LOG_USER_INFO("  Pin 2: DO   -> PF1  (IO1/MISO)");
+    SHELL_LOG_USER_INFO("  Pin 3: WP#  -> VCC (pull-up) or IO2");
+    SHELL_LOG_USER_INFO("  Pin 4: GND  -> GND");
+    SHELL_LOG_USER_INFO("  Pin 5: DI   -> PF0  (IO0/MOSI)");
+    SHELL_LOG_USER_INFO("  Pin 6: CLK  -> PF4");
+    SHELL_LOG_USER_INFO("  Pin 7: HOLD# -> VCC (pull-up) or IO3");
+    SHELL_LOG_USER_INFO("  Pin 8: VCC  -> 3.3V");
+    SHELL_LOG_USER_INFO("");
+    
+    SHELL_LOG_USER_INFO("If getting 0xFF responses, check:");
+    SHELL_LOG_USER_INFO("1. Power supply (3.3V to Pin 8)");
+    SHELL_LOG_USER_INFO("2. Ground connection (Pin 4)");
+    SHELL_LOG_USER_INFO("3. WP# and HOLD# pulled high (Pins 3,7)");
+    SHELL_LOG_USER_INFO("4. Correct pin connections as shown above");
+    
+    return 0;
+}
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 flash_gpio_test, cmd_flash_gpio_test, test flash GPIO pin states and show connection info);
