@@ -53,33 +53,42 @@ void MX_SAI4_Init(void)
    */
   hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_1QF;
   hsai_BlockA4.Init.SynchroExt = SAI_SYNCEXT_DISABLE;
-  hsai_BlockA4.Init.MonoStereoMode = SAI_STEREOMODE;
+  const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+  uint32_t channels = cfg ? cfg->channels : AUDIO_MAX_CHANNELS;
+  uint32_t protocol = cfg ? cfg->sai_protocol : SAI_PCM_SHORT;
+  uint32_t datasize = cfg ? cfg->sai_datasize : SAI_PROTOCOL_DATASIZE_16BIT;
+  uint32_t slot_mask = cfg ? cfg->slot_active_mask : ((1U << AUDIO_MAX_CHANNELS) - 1U);
+
+  hsai_BlockA4.Init.MonoStereoMode = (channels == 1U) ? SAI_MONOMODE : SAI_STEREOMODE;
   hsai_BlockA4.Init.CompandingMode = SAI_NOCOMPANDING;
   hsai_BlockA4.Init.TriState = SAI_OUTPUT_NOTRELEASED;
-  
-  /* Configure active slots based on channel count from audio_recorder.h */
-  hsai_BlockA4.SlotInit.SlotActive = SAI_SLOT_ACTIVE_MASK;
-  
-  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_PCM_SHORT, SAI_PROTOCOL_DATASIZE_16BIT, AUDIO_CHANNELS) != HAL_OK)
+
+  /* Configure active slots based on current audio profile */
+  hsai_BlockA4.SlotInit.SlotActive = slot_mask;
+
+  if (HAL_SAI_InitProtocol(&hsai_BlockA4, protocol, datasize, channels) != HAL_OK)
   {
     Error_Handler();
   }
-  SHELL_LOG_USER_INFO("SAI initialized: %02x SlotActive %d channels, 16-bit, PCM Short", SAI_SLOT_ACTIVE_MASK, AUDIO_CHANNELS);
+  if (cfg != NULL) {
+      SHELL_LOG_USER_INFO("SAI initialized: profile %s, SlotActive 0x%08lX, %lu channels, %lu-bit, %lu Hz",
+                          cfg->name,
+                          (unsigned long)slot_mask,
+                          (unsigned long)cfg->channels,
+                          (unsigned long)cfg->bit_depth,
+                          (unsigned long)cfg->sample_rate);
+  } else {
+      SHELL_LOG_USER_INFO("SAI initialized with fallback profile, SlotActive 0x%08lX, %lu channels",
+                          (unsigned long)slot_mask,
+                          (unsigned long)channels);
+  }
   /* USER CODE BEGIN SAI4_Init 2 */
   /*
-   * Multi-channel TDM configuration (configurable via audio_recorder.h):
-   * Current config: AUDIO_CHANNELS channels, AUDIO_BIT_DEPTH-bit, AUDIO_SAMPLE_RATE Hz
-   * 
-   * For 4-channel: BCLK ≈ 1.024 MHz, FS = 16 kHz, 4 channels, 16-bit each.
-   * Formula: 16k * 4 * 16 = 1.024 MHz => Frame length 64 bits.
-   * 
-   * For 8-channel: BCLK ≈ 2.048 MHz, FS = 16 kHz, 8 channels, 16-bit each.
-   * Formula: 16k * 8 * 16 = 2.048 MHz => Frame length 128 bits.
-   * 
-   * HAL_SAI_InitProtocol(SAI_PCM_SHORT, 16bit, AUDIO_CHANNELS) automatically configures:
-   *   FrameLength, ActiveFrameLength, FSOffset, SlotSize, SlotNumber
-   * 
-   * Active slots are set via SAI_SLOT_ACTIVE_MASK macro based on AUDIO_CHANNELS
+   * Multi-channel configuration is now selected at runtime via audio_recorder_set_mode():
+   *   - AUDIO_MODE_I2S_STEREO: 2 channels, 16-bit, I2S standard frames
+   *   - AUDIO_MODE_I2S_TDM   : 8 channels, 16-bit, PCM short TDM frames
+   * The helper HAL_SAI_InitProtocol call configures FrameLength, SlotNumber etc.
+   * SlotActive mask is populated from the active audio profile.
    */
 
   /* USER CODE END SAI4_Init 2 */

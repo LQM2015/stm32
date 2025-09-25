@@ -26,6 +26,33 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
+static AudioPcmMode_t s_audio_mode = AUDIO_MODE_I2S_STEREO;
+
+static const AudioPcmConfig_t s_pcm_profiles[AUDIO_MODE_COUNT] = {
+    [AUDIO_MODE_I2S_STEREO] = {
+        .mode = AUDIO_MODE_I2S_STEREO,
+        .name = "I2S_STEREO",
+        .channels = 2,
+        .bit_depth = AUDIO_SUPPORTED_BIT_DEPTH,
+        .sample_rate = 16000U,
+        .buffer_frames = AUDIO_DMA_BUFFER_FRAMES,
+        .sai_protocol = SAI_I2S_STANDARD,
+        .sai_datasize = SAI_PROTOCOL_DATASIZE_16BIT,
+        .slot_active_mask = (1U << 2) - 1U,
+    },
+    [AUDIO_MODE_I2S_TDM] = {
+        .mode = AUDIO_MODE_I2S_TDM,
+        .name = "I2S_TDM",
+        .channels = AUDIO_MAX_CHANNELS,
+        .bit_depth = AUDIO_SUPPORTED_BIT_DEPTH,
+        .sample_rate = 16000U,
+        .buffer_frames = AUDIO_DMA_BUFFER_FRAMES,
+        .sai_protocol = SAI_PCM_SHORT,
+        .sai_datasize = SAI_PROTOCOL_DATASIZE_16BIT,
+        .slot_active_mask = (1U << AUDIO_MAX_CHANNELS) - 1U,
+    },
+};
+
 // 独立的文件对象，避免与录音器结构体混在一起被踩踏
 static FIL g_audio_file __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)));
 
@@ -42,11 +69,11 @@ static AudioRecorder_t recorder = {0};
 #if defined ( __GNUC__ )
 __attribute__((section(".dma_buffer"), aligned(32)))
 #endif
-static uint16_t audio_buffer[AUDIO_BUFFER_SAMPLES]; // 16-bit samples interleaved multi-channel TDM
+static uint16_t audio_buffer[AUDIO_DMA_BUFFER_SAMPLES_MAX]; // 16-bit samples interleaved multi-channel data
 
 // 队列数据结构定义 - 简化设计，直接包含数据
 typedef struct {
-    uint16_t data[AUDIO_HALF_BUFFER_SIZE / 2];  // 直接内嵌数据缓冲区
+    uint16_t data[AUDIO_DMA_HALF_BUFFER_SIZE_MAX / 2];  // 直接内嵌数据缓冲区 (16-bit samples)
     uint32_t data_size;    // 数据大小（字节）
     uint32_t timestamp;    // 时间戳
     bool is_half_buffer;   // true: 前半缓冲区, false: 后半缓冲区
@@ -79,6 +106,149 @@ static void audio_process_thread(void *argument);
 static int verify_file_exists(const char* filepath);
 static void measure_external_clock_frequency(void);
 
+static const AudioPcmConfig_t* resolve_profile(AudioPcmMode_t mode)
+{
+    if (mode >= AUDIO_MODE_COUNT) {
+        return NULL;
+    }
+    return &s_pcm_profiles[mode];
+}
+
+AudioPcmMode_t audio_recorder_get_mode(void)
+{
+    return s_audio_mode;
+}
+
+const AudioPcmConfig_t* audio_recorder_get_pcm_config(void)
+{
+    return resolve_profile(s_audio_mode);
+}
+
+const AudioPcmConfig_t* audio_recorder_get_pcm_config_for_mode(AudioPcmMode_t mode)
+{
+    return resolve_profile(mode);
+}
+
+uint32_t audio_recorder_get_channel_count(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    return cfg ? cfg->channels : 0U;
+}
+
+uint32_t audio_recorder_get_sample_rate(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    return cfg ? cfg->sample_rate : 0U;
+}
+
+uint32_t audio_recorder_get_bit_depth(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    return cfg ? cfg->bit_depth : AUDIO_SUPPORTED_BIT_DEPTH;
+}
+
+uint32_t audio_recorder_get_bytes_per_frame(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    if (cfg == NULL) {
+        return 0U;
+    }
+    return cfg->channels * (cfg->bit_depth / 8U);
+}
+
+uint32_t audio_recorder_get_total_buffer_bytes(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    if (cfg == NULL) {
+        return 0U;
+    }
+    return cfg->buffer_frames * audio_recorder_get_bytes_per_frame();
+}
+
+uint32_t audio_recorder_get_half_buffer_bytes(void)
+{
+    return audio_recorder_get_total_buffer_bytes() / 2U;
+}
+
+uint32_t audio_recorder_get_total_buffer_samples(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    if (cfg == NULL || cfg->bit_depth == 0U) {
+        return 0U;
+    }
+    uint32_t bytes_per_sample = cfg->bit_depth / 8U;
+    return audio_recorder_get_total_buffer_bytes() / bytes_per_sample;
+}
+
+uint32_t audio_recorder_get_half_buffer_samples(void)
+{
+    return audio_recorder_get_total_buffer_samples() / 2U;
+}
+
+uint32_t audio_recorder_get_slot_active_mask(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    return cfg ? cfg->slot_active_mask : 0U;
+}
+
+uint32_t audio_recorder_get_sai_protocol(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    return cfg ? cfg->sai_protocol : SAI_I2S_STANDARD;
+}
+
+uint32_t audio_recorder_get_sai_datasize(void)
+{
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    return cfg ? cfg->sai_datasize : SAI_PROTOCOL_DATASIZE_16BIT;
+}
+
+HAL_StatusTypeDef audio_recorder_set_mode(AudioPcmMode_t mode)
+{
+    if (mode >= AUDIO_MODE_COUNT) {
+        SHELL_LOG_USER_ERROR("Invalid audio mode: %d", mode);
+        return HAL_ERROR;
+    }
+
+    if ((recorder.state == AUDIO_REC_RECORDING) || (recorder.state == AUDIO_REC_STOPPING)) {
+        SHELL_LOG_USER_WARNING("Cannot switch audio mode while recording (state=%d)", recorder.state);
+        return HAL_BUSY;
+    }
+
+    if (mode == s_audio_mode) {
+        return HAL_OK;
+    }
+
+    const AudioPcmConfig_t* cfg = resolve_profile(mode);
+    if (cfg == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to resolve audio profile for mode %d", mode);
+        return HAL_ERROR;
+    }
+
+    s_audio_mode = mode;
+
+    recorder.channels = cfg->channels;
+    recorder.bit_depth = cfg->bit_depth;
+    recorder.sample_rate = cfg->sample_rate;
+    recorder.buffer_size = audio_recorder_get_total_buffer_bytes();
+
+    if (recorder.file_open) {
+        SHELL_LOG_USER_WARNING("Audio file still open while switching mode; closing reference");
+        recorder.file_open = false;
+    }
+
+    /* Reconfigure SAI peripheral to apply the new audio profile */
+    MX_SAI4_Init();
+
+    SHELL_LOG_USER_INFO("Audio mode switched to %s (%d ch, %d-bit, %lu Hz)",
+                        cfg->name,
+                        cfg->channels,
+                        cfg->bit_depth,
+                        (unsigned long)cfg->sample_rate);
+
+    return HAL_OK;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -91,9 +261,14 @@ static void generate_filename(char* filename, size_t size)
     // For now, use a simple counter-based naming
     static uint32_t file_counter = 0;
     file_counter++;
+
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    uint32_t channels = cfg ? cfg->channels : audio_recorder_get_channel_count();
+    uint32_t bit_depth = cfg ? cfg->bit_depth : audio_recorder_get_bit_depth();
+    uint32_t sample_rate = cfg ? cfg->sample_rate : audio_recorder_get_sample_rate();
     
     snprintf(filename, size, "audio_%dch_%dbit_%dHz_%03lu.pcm", 
-             AUDIO_CHANNELS, AUDIO_BIT_DEPTH, AUDIO_SAMPLE_RATE, file_counter);
+             (int)channels, (int)bit_depth, (int)sample_rate, file_counter);
 }
 
 /**
@@ -389,7 +564,15 @@ static void measure_external_clock_frequency(void)
     rx_half_counter = 0;
     
     SHELL_LOG_USER_INFO("Starting temporary measurement session...");
-    SHELL_LOG_USER_INFO("Expected timing: 256ms per complete callback (4096 samples @ 16kHz)");
+    uint32_t expected_total_samples = audio_recorder_get_total_buffer_samples();
+    uint32_t active_sample_rate = audio_recorder_get_sample_rate();
+    uint32_t expected_interval_ms = (active_sample_rate > 0U)
+                                      ? (expected_total_samples * 1000U) / active_sample_rate
+                                      : 0U;
+    SHELL_LOG_USER_INFO("Expected timing: %lums per complete callback (%lu samples @ %lu Hz)",
+                        (unsigned long)expected_interval_ms,
+                        (unsigned long)expected_total_samples,
+                        (unsigned long)active_sample_rate);
     
     // 临时开始录音，但不打开文件
     recorder.state = AUDIO_REC_RECORDING;
@@ -398,7 +581,9 @@ static void measure_external_clock_frequency(void)
     SHELL_LOG_USER_INFO("Measurement start time: %lu ms", start_time);
     
     // 启动SAI DMA
-    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4, (uint8_t*)audio_buffer, AUDIO_BUFFER_SAMPLES);
+    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4,
+                                                      (uint8_t*)audio_buffer,
+                                                      audio_recorder_get_total_buffer_samples());
     if (sai_result != HAL_OK) {
         SHELL_LOG_USER_ERROR("Failed to start SAI for measurement, result: %d", sai_result);
         recorder.state = AUDIO_REC_IDLE;
@@ -432,12 +617,16 @@ static void measure_external_clock_frequency(void)
     
     if (rx_complete_counter >= 2) {
         // 计算平均时间间隔（整数运算）
-        uint32_t avg_interval_ms = elapsed_ms / rx_complete_counter;
-        uint32_t measured_rate_hz = (4096 * 1000) / avg_interval_ms;  // 4096 samples * 1000ms / interval_ms
+    uint32_t avg_interval_ms = elapsed_ms / rx_complete_counter;
+    uint32_t measured_rate_hz = (avg_interval_ms > 0U)
+                    ? (expected_total_samples * 1000U) / avg_interval_ms
+                    : 0U;
         
         SHELL_LOG_USER_INFO("Average callback interval: %lu ms", avg_interval_ms);
         SHELL_LOG_USER_INFO("Calculated external sample rate: %lu Hz", measured_rate_hz);
-        SHELL_LOG_USER_INFO("Expected: 256 ms interval, 16000 Hz rate");
+    SHELL_LOG_USER_INFO("Expected: %lu ms interval, %lu Hz rate",
+                (unsigned long)expected_interval_ms,
+                (unsigned long)active_sample_rate);
         
         if (measured_rate_hz < 8000) {
             SHELL_LOG_USER_ERROR("PROBLEM: External clock rate too low!");
@@ -476,11 +665,19 @@ int audio_recorder_init(void)
     __DSB();  // 确保内存清零完成
     
     // Initialize recorder structure
-    recorder.channels = AUDIO_CHANNELS;
-    recorder.bit_depth = AUDIO_BIT_DEPTH;
-    recorder.sample_rate = AUDIO_SAMPLE_RATE;
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    if (cfg != NULL) {
+        recorder.channels = cfg->channels;
+        recorder.bit_depth = cfg->bit_depth;
+        recorder.sample_rate = cfg->sample_rate;
+        recorder.buffer_size = audio_recorder_get_total_buffer_bytes();
+    } else {
+        recorder.channels = AUDIO_MAX_CHANNELS;
+        recorder.bit_depth = AUDIO_SUPPORTED_BIT_DEPTH;
+        recorder.sample_rate = 0U;
+        recorder.buffer_size = AUDIO_DMA_BUFFER_SIZE_MAX;
+    }
     recorder.state = AUDIO_REC_IDLE;
-    recorder.buffer_size = AUDIO_BUFFER_SIZE;
     recorder.bytes_written = 0;
     recorder.file_open = false;
     
@@ -582,6 +779,14 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_DEBUG("Current state: %d (IDLE=%d, RECORDING=%d, STOPPING=%d, ERROR=%d)", 
                          recorder.state, AUDIO_REC_IDLE, AUDIO_REC_RECORDING, AUDIO_REC_STOPPING, AUDIO_REC_ERROR);
     
+    const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
+    if (cfg != NULL) {
+        recorder.channels = cfg->channels;
+        recorder.bit_depth = cfg->bit_depth;
+        recorder.sample_rate = cfg->sample_rate;
+        recorder.buffer_size = audio_recorder_get_total_buffer_bytes();
+    }
+
     // 如果已经在录音，直接返回错误但用更友好的消息
     if (recorder.state == AUDIO_REC_RECORDING) {
         SHELL_LOG_USER_INFO("Audio recording is already active");
@@ -610,6 +815,9 @@ int audio_recorder_start(void)
     
     // Reset SAI timing status and clear any error flags
     reset_sai_timing_status();
+
+    /* Ensure SAI instance is aligned with the current audio profile */
+    MX_SAI4_Init();
     
     // Check if SD card is mounted first
     SHELL_LOG_USER_DEBUG("Checking SD card mount status via global fs manager...");
@@ -749,14 +957,17 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_DEBUG("State set to RECORDING: %d", recorder.state);
     
     // Start SAI DMA reception
-    SHELL_LOG_USER_INFO("Starting SAI DMA reception, buffer size: %d samples (%d bytes)", 
-                        AUDIO_BUFFER_SAMPLES, AUDIO_BUFFER_SIZE);
+    SHELL_LOG_USER_INFO("Starting SAI DMA reception, buffer size: %lu samples (%lu bytes)", 
+                        (unsigned long)audio_recorder_get_total_buffer_samples(),
+                        (unsigned long)audio_recorder_get_total_buffer_bytes());
     SHELL_LOG_USER_DEBUG("SAI handle: %p, buffer address: %p", &hsai_BlockA4, audio_buffer);
     SHELL_LOG_USER_DEBUG("SAI state before start: %d", HAL_SAI_GetState(&hsai_BlockA4));
 
     /* Buffer is non-cacheable via MPU; no cache maintenance needed */
     
-    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4, (uint8_t*)audio_buffer, AUDIO_BUFFER_SAMPLES);
+    HAL_StatusTypeDef sai_result = HAL_SAI_Receive_DMA(&hsai_BlockA4,
+                                                      (uint8_t*)audio_buffer,
+                                                      audio_recorder_get_total_buffer_samples());
     SHELL_LOG_USER_DEBUG("SAI_Receive_DMA result: %d", sai_result);
     
     if (sai_result != HAL_OK) {
@@ -1039,7 +1250,8 @@ void audio_recorder_debug_status(void)
         
         // 检查当前缓冲区内容
         int current_non_zero = 0;
-        for (int i = 0; i < 10 && i < AUDIO_BUFFER_SAMPLES; i++) {
+        uint32_t total_samples = audio_recorder_get_total_buffer_samples();
+        for (uint32_t i = 0; (i < 10U) && (i < total_samples); i++) {
             if (audio_buffer[i] != 0) current_non_zero++;
         }
         SHELL_LOG_USER_INFO("Current non-zero samples in first 10: %d", current_non_zero);
@@ -1155,12 +1367,15 @@ void audio_recorder_rx_complete_callback(void)
         // 准备队列数据项 - 后半缓冲区
         AudioDataItem_t audio_item;
         
-        // 复制DMA数据到独立缓冲区，避免被硬件覆盖
-        uint16_t* source_ptr = &audio_buffer[AUDIO_BUFFER_SAMPLES / 2];  // 后半缓冲区
-        memcpy(audio_item.data, source_ptr, AUDIO_HALF_BUFFER_SIZE);
+    uint32_t half_bytes = audio_recorder_get_half_buffer_bytes();
+    uint32_t half_samples = audio_recorder_get_half_buffer_samples();
+
+    // 复制DMA数据到独立缓冲区，避免被硬件覆盖
+    uint16_t* source_ptr = &audio_buffer[half_samples];  // 后半缓冲区
+    memcpy(audio_item.data, source_ptr, half_bytes);
         __DSB();  // 确保内存复制完成
         
-        audio_item.data_size = AUDIO_HALF_BUFFER_SIZE;
+    audio_item.data_size = half_bytes;
         audio_item.timestamp = HAL_GetTick();
         audio_item.is_half_buffer = false;  // 完整回调 = 后半缓冲区
         
@@ -1194,12 +1409,14 @@ void audio_recorder_rx_half_complete_callback(void)
         // 准备队列数据项 - 前半缓冲区
         AudioDataItem_t audio_item;
         
-        // 复制DMA数据到独立缓冲区，避免被硬件覆盖
-        uint16_t* source_ptr = &audio_buffer[0];  // 前半缓冲区
-        memcpy(audio_item.data, source_ptr, AUDIO_HALF_BUFFER_SIZE);
+    uint32_t half_bytes = audio_recorder_get_half_buffer_bytes();
+
+    // 复制DMA数据到独立缓冲区，避免被硬件覆盖
+    uint16_t* source_ptr = &audio_buffer[0];  // 前半缓冲区
+    memcpy(audio_item.data, source_ptr, half_bytes);
         __DSB();  // 确保内存复制完成
         
-        audio_item.data_size = AUDIO_HALF_BUFFER_SIZE;
+    audio_item.data_size = half_bytes;
         audio_item.timestamp = HAL_GetTick();
         audio_item.is_half_buffer = true;   // 半完成回调 = 前半缓冲区
         

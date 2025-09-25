@@ -2711,7 +2711,10 @@ int cmd_audio_start(int argc, char *argv[])
     
     if (audio_recorder_start() == 0) {
         SHELL_LOG_USER_INFO("Audio recording started");
-        SHELL_LOG_USER_INFO("Format: %dch_%dbit_%dHz", AUDIO_CHANNELS, AUDIO_BIT_DEPTH, AUDIO_SAMPLE_RATE);
+    SHELL_LOG_USER_INFO("Format: %luch_%lubit_%luHz",
+                 (unsigned long)audio_recorder_get_channel_count(),
+                 (unsigned long)audio_recorder_get_bit_depth(),
+                 (unsigned long)audio_recorder_get_sample_rate());
         SHELL_LOG_USER_INFO("File: %s", audio_recorder_get_filename());
     } else {
         SHELL_LOG_USER_ERROR("Failed to start audio recording");
