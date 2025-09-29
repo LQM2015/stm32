@@ -51,7 +51,7 @@
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 
@@ -118,6 +118,14 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
    /* Run time stack overflow checking is performed if
    configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
    called if a stack overflow is detected. */
+   
+   DEBUG_ERROR("=== STACK OVERFLOW DETECTED ===");
+   DEBUG_ERROR("Task Name: %s", pcTaskName ? (char*)pcTaskName : "Unknown");
+   DEBUG_ERROR("Task Handle: 0x%08X", (uint32_t)xTask);
+   DEBUG_ERROR("Free Heap: %d bytes", (int)xPortGetFreeHeapSize());
+   
+   /* 系统将会崩溃，调用错误处理函数 */
+   Error_Handler();
 }
 /* USER CODE END 4 */
 
@@ -134,6 +142,13 @@ void vApplicationMallocFailedHook(void)
    FreeRTOSConfig.h, and the xPortGetFreeHeapSize() API function can be used
    to query the size of free heap space that remains (although it does not
    provide information on how the remaining heap might be fragmented). */
+   
+   DEBUG_ERROR("=== MEMORY ALLOCATION FAILED ===");
+   DEBUG_ERROR("Free Heap Size: %d bytes", (int)xPortGetFreeHeapSize());
+   DEBUG_ERROR("Minimum Ever Free Heap: %d bytes", (int)xPortGetMinimumEverFreeHeapSize());
+   
+   /* 系统将会崩溃，调用错误处理函数 */
+   Error_Handler();
 }
 /* USER CODE END 5 */
 
@@ -205,9 +220,27 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
+  
+  /* 初始化调试系统 */
+  debug_init();
+  
+  DEBUG_INFO("FreeRTOS Default Task started");
+  DEBUG_INFO("Task Name: %s", pcTaskGetName(NULL));
+  DEBUG_INFO("Task Priority: %d", (int)osThreadGetPriority(defaultTaskHandle));
+  DEBUG_INFO("Free Heap Size: %d bytes", (int)xPortGetFreeHeapSize());
+  
   /* Infinite loop */
+  uint32_t loop_count = 0;
   for(;;)
   {
+    loop_count++;
+    
+    /* 每10秒打印一次状态信息 */
+    if (loop_count % 10000 == 0) {
+      DEBUG_INFO("System running - Loop: %lu, Free Heap: %d bytes", 
+                 loop_count / 1000, (int)xPortGetFreeHeapSize());
+    }
+    
     osDelay(1);
   }
   /* USER CODE END StartDefaultTask */

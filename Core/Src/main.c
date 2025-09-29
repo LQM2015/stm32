@@ -109,7 +109,17 @@ int main(void)
   MX_QUADSPI_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  /* 初始化调试输出功能 */
+  DEBUG_INFO("Starting main function initialization...");
+  
+  /* 运行调试测试 */
+  debug_test();
+  
+  DEBUG_INFO("UART1 initialized at 115200 baud");
+  DEBUG_INFO("QUADSPI initialized");
+  DEBUG_INFO("DMA and MDMA initialized");
+  DEBUG_INFO("GPIO initialized");
+  DEBUG_INFO("System ready, starting FreeRTOS scheduler...");
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -128,6 +138,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    /* 这里不应该执行到，因为控制权已经交给FreeRTOS调度器 */
+    DEBUG_ERROR("ERROR: Unexpected return from FreeRTOS scheduler!");
+    HAL_Delay(1000);
   }
   /* USER CODE END 3 */
 }
@@ -254,9 +267,23 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+  
+  /* 输出错误信息 */
+  DEBUG_ERROR("=== SYSTEM ERROR DETECTED ===");
+  DEBUG_ERROR("Error Handler called from: %s", __FILE__);
+  DEBUG_ERROR("System will be halted");
+  DEBUG_ERROR("Check UART output for more details");
+  
+  /* 打印当前系统状态 */
+  DEBUG_ERROR("Current Tick: %lu", HAL_GetTick());
+  DEBUG_ERROR("SYSCLK: %lu Hz", HAL_RCC_GetSysClockFreq());
+  
+  /* 禁用中断并进入死循环 */
   __disable_irq();
   while (1)
   {
+    /* 可以在这里添加LED闪烁等错误指示 */
+    HAL_Delay(500);
   }
   /* USER CODE END Error_Handler_Debug */
 }
@@ -273,6 +300,14 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  
+  DEBUG_ERROR("=== ASSERTION FAILED ===");
+  DEBUG_ERROR("File: %s", file);
+  DEBUG_ERROR("Line: %lu", line);
+  DEBUG_ERROR("Check your code parameters!");
+  
+  /* 调用错误处理函数 */
+  Error_Handler();
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
