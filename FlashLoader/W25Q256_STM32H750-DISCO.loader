@@ -1,0 +1,39 @@
+# Flash Loader Description File for W25Q256 on STM32H750-DISCO
+# This file provides information to STM32CubeProgrammer about the external flash
+
+[LOADER_INFO]
+# Loader information
+Device_Name=W25Q256_STM32H750-DISCO
+Device_Type=NOR_FLASH
+Device_Start_Address=0x90000000
+Device_Size=0x2000000
+Page_Size=0x100
+Erased_Value=0xFF
+Program_Page_Timeout=400
+Erase_Sector_Timeout=3000
+
+[SECTOR_INFO]  
+# Sector information (all sectors are 4KB)
+Sector_Size=0x1000
+Sector_Count=0x2000
+
+[TIMING]
+# Timing information (in milliseconds)
+Page_Program_Time=3
+Sector_Erase_Time=300
+Block_Erase_Time=2000
+Chip_Erase_Time=80000
+
+[FEATURES]
+# Supported features
+Memory_Mapped_Mode=YES
+Quad_SPI_Mode=YES
+Write_Protection=YES
+Block_Protection=YES
+
+[NOTES]
+# Additional notes
+Description=Flash Loader for Winbond W25Q256 (32MB) external flash on STM32H750-DISCO board via QUADSPI interface
+Version=1.0.0
+Date=2025-01-29
+Author=STM32 Flash Loader Generator
