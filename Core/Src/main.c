@@ -18,12 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+
+#ifndef FLASH_LOADER
 #include "cmsis_os.h"
 #include "dma.h"
 #include "mdma.h"
 #include "quadspi.h"
 #include "usart.h"
 #include "gpio.h"
+#endif
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -70,6 +73,22 @@ void MX_FREERTOS_Init(void);
   */
 int main(void)
 {
+#ifdef FLASH_LOADER
+  /* Flash Loader mode - minimal initialization */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+  
+  /* Configure the system clock */
+  SystemClock_Config();
+  
+  /* Flash Loader runs its own functions, main() should not execute normal app code */
+  while(1)
+  {
+    /* Flash Loader functions are called by STM32CubeProgrammer */
+    /* This loop should never be reached in normal operation */
+  }
+#else
+  /* Normal application mode */
 
   /* USER CODE BEGIN 1 */
 
@@ -143,6 +162,7 @@ int main(void)
     HAL_Delay(1000);
   }
   /* USER CODE END 3 */
+#endif /* !FLASH_LOADER */
 }
 
 /**

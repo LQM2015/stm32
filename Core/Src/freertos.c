@@ -17,6 +17,7 @@
   */
 /* USER CODE END Header */
 
+#ifndef FLASH_LOADER
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
 #include "task.h"
@@ -317,4 +318,6 @@ void StartDefaultTask(void *argument)
 /* USER CODE BEGIN Application */
 
 /* USER CODE END Application */
+
+#endif /* !FLASH_LOADER */
 

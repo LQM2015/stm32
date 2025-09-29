@@ -171,6 +171,10 @@ void SystemInit(void)
   RCC->CIER = 0x00000000;
 
   /* Configure the Vector Table location add offset address ------------------*/
+#ifndef VECT_TAB_OFFSET
+#define VECT_TAB_OFFSET  0x00000000U /*!< Vector Table base offset field. This value must be a multiple of 0x200. */
+#endif
+
 #ifdef VECT_TAB_SRAM
   SCB->VTOR = SRAM_BASE | VECT_TAB_OFFSET; /* Vector Table Relocation in Internal SRAM */
 #else

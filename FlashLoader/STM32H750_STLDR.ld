@@ -1,41 +1,38 @@
 /**
 ******************************************************************************
-* @file      STM32H750_FlashLoader.ld
-* @author    STM32CubeProgrammer Flash Loader Team
-* @brief     Linker script for STM32H750XBHx Flash Loader
-*            This linker script is used to configure memory layout for
-*            the Flash Loader algorithm that runs from internal SRAM
-******************************************************************************
-* @attention
-*
-* This linker script is specifically designed for Flash Loader algorithms
-* that must be executed from RAM. The algorithm will be loaded into RAM 
-* by STM32CubeProgrammer and executed from there.
-*
+* @file      STM32H750_STLDR.ld
+* @author    STM32CubeProgrammer Team  
+* @brief     Linker script for STM32H750 External Loader (.stldr format)
+*            This script is specifically designed for STM32CubeProgrammer
 ******************************************************************************
 */
 
-/* Highest address of the user mode stack */
-_estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
+/* Entry Point */
+ENTRY(Reset_Handler)
 
-_Min_Heap_Size = 0x200; /* required amount of heap  */
+/* Highest address of the user mode stack */
+_estack = 0x20020000;    /* end of RAM */
+
+/* Generate a link error if heap and stack don't fit into RAM */
+_Min_Heap_Size = 0x200;  /* required amount of heap  */
 _Min_Stack_Size = 0x400; /* required amount of stack */
 
-/* Memories definition for STM32H750XBH6 */
+/* Specify the memory areas */
 MEMORY
 {
-  RAM (xrw)    : ORIGIN = 0x20000004, LENGTH = 0x1FFFC  /* 128KB - 4 bytes for Stack pointer */
-  ITCMRAM (xrw): ORIGIN = 0x00000000, LENGTH = 64K
-  DTCMRAM (xrw): ORIGIN = 0x20000000, LENGTH = 128K
-  RAM_D1 (xrw) : ORIGIN = 0x24000000, LENGTH = 512K
-  RAM_D2 (xrw) : ORIGIN = 0x30000000, LENGTH = 288K
-  RAM_D3 (xrw) : ORIGIN = 0x38000000, LENGTH = 64K
+  FLASH (rx)     : ORIGIN = 0x08000000, LENGTH = 128K
+  RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
+  DTCMRAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 128K
+  ITCMRAM (xrw)  : ORIGIN = 0x00000000, LENGTH = 64K
+  RAM_D1 (xrw)   : ORIGIN = 0x24000000, LENGTH = 512K
+  RAM_D2 (xrw)   : ORIGIN = 0x30000000, LENGTH = 288K  
+  RAM_D3 (xrw)   : ORIGIN = 0x38000000, LENGTH = 64K
 }
 
-/* Sections */
+/* Define output sections */
 SECTIONS
 {
-  /* The startup code into "RAM" Ram type memory */
+  /* The startup code goes first into FLASH */
   .isr_vector :
   {
     . = ALIGN(4);
@@ -43,23 +40,23 @@ SECTIONS
     . = ALIGN(4);
   } >RAM
 
-  /* The program code and other data into "RAM" Ram type memory */
+  /* The program code and other data goes into FLASH */
   .text :
   {
     . = ALIGN(4);
     *(.text)           /* .text sections (code) */
     *(.text*)          /* .text* sections (code) */
-    
-    /* Flash Loader API functions - keep them even if not called directly */
-    KEEP(*(.text.Init))
-    KEEP(*(.text.Write))
-    KEEP(*(.text.SectorErase))
-    KEEP(*(.text.MassErase))
-    KEEP(*(.flashloader_api))
     *(.glue_7)         /* glue arm to thumb code */
     *(.glue_7t)        /* glue thumb to arm code */
     *(.eh_frame)
 
+    /* Keep Flash Loader API functions */
+    KEEP(*(.text.Init))
+    KEEP(*(.text.Write))  
+    KEEP(*(.text.SectorErase))
+    KEEP(*(.text.MassErase))
+    KEEP(*(.text.Verify))
+    
     KEEP (*(.init))
     KEEP (*(.fini))
 
@@ -67,7 +64,7 @@ SECTIONS
     _etext = .;        /* define a global symbols at end of code */
   } >RAM
 
-  /* Constant data into "RAM" Ram type memory */
+  /* Constant data goes into FLASH */
   .rodata :
   {
     . = ALIGN(4);
@@ -76,71 +73,54 @@ SECTIONS
     . = ALIGN(4);
   } >RAM
 
-  .ARM.extab   : { 
-    . = ALIGN(4);
-    *(.ARM.extab* .gnu.linkonce.armextab.*)
-    . = ALIGN(4);
-  } >RAM
-
+  .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >RAM
   .ARM : {
-    . = ALIGN(4);
     __exidx_start = .;
     *(.ARM.exidx*)
     __exidx_end = .;
-    . = ALIGN(4);
   } >RAM
 
   .preinit_array     :
   {
-    . = ALIGN(4);
     PROVIDE_HIDDEN (__preinit_array_start = .);
     KEEP (*(.preinit_array*))
     PROVIDE_HIDDEN (__preinit_array_end = .);
-    . = ALIGN(4);
   } >RAM
-
   .init_array :
   {
-    . = ALIGN(4);
     PROVIDE_HIDDEN (__init_array_start = .);
     KEEP (*(SORT(.init_array.*)))
     KEEP (*(.init_array*))
     PROVIDE_HIDDEN (__init_array_end = .);
-    . = ALIGN(4);
   } >RAM
-
   .fini_array :
   {
-    . = ALIGN(4);
     PROVIDE_HIDDEN (__fini_array_start = .);
     KEEP (*(SORT(.fini_array.*)))
     KEEP (*(.fini_array*))
     PROVIDE_HIDDEN (__fini_array_end = .);
-    . = ALIGN(4);
   } >RAM
 
-  /* Used by the startup to initialize data */
+  /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
-  /* Initialized data sections into "RAM" Ram type memory */
+  /* Initialized data sections goes into RAM, load LMA copy after code */
   .data : 
   {
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
     *(.data)           /* .data sections */
     *(.data*)          /* .data* sections */
-    *(.RamFunc)        /* .RamFunc sections */
 
     . = ALIGN(4);
     _edata = .;        /* define a global symbol at data end */
-    
   } >RAM
 
-  /* Uninitialized data section into "RAM" Ram type memory */
+  /* Uninitialized data section */
   . = ALIGN(4);
   .bss :
   {
-    /* This is used by the startup in order to initialize the .bss section */
+    /* This is used by the startup in order to initialize the .bss secion */
     _sbss = .;         /* define a global symbol at bss start */
     __bss_start__ = _sbss;
     *(.bss)
@@ -152,7 +132,7 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
-  /* User_heap_stack section, used to check that there is enough "RAM" Ram type memory left */
+  /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
   {
     . = ALIGN(8);
@@ -163,7 +143,7 @@ SECTIONS
     . = ALIGN(8);
   } >RAM
 
-  /* Remove information from the compiler libraries */
+  /* Remove information from the standard libraries */
   /DISCARD/ :
   {
     libc.a ( * )
@@ -172,10 +152,13 @@ SECTIONS
   }
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
-
-  /* Storage Info section must be available for ST-LINK Utility */
-  .storageinfo 0x080001C0 : 
+  
+  /* Device Information for STM32CubeProgrammer - 固定地址 */  
+  .devicedata 0x08001C00 : AT(0x08001C00)
   {
-    *(.storageinfo)
-  }
+    . = ALIGN(4);
+    KEEP(*(.devicedata))
+    KEEP(*(DeviceData))
+    . = ALIGN(4);
+  } >FLASH
 }

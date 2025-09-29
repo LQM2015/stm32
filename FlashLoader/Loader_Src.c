@@ -65,7 +65,9 @@
 #define W25Q256_FLASH_ID                 0xEF4019
 
 /* External variables */
+#ifndef FLASH_LOADER
 extern QSPI_HandleTypeDef hqspi;
+#endif
 extern void Error_Handler(void);
 
 #ifdef FLASH_LOADER
@@ -90,6 +92,7 @@ static uint32_t CSP_QSPI_ReadID(void);
   * @param  None
   * @retval LOADER_OK (1) if success, LOADER_FAIL (0) otherwise
   */
+__attribute__((section(".text.Init"), used, externally_visible))
 int Init(void)
 {
     SystemInit();
@@ -135,6 +138,7 @@ int Init(void)
   * @param  buffer: Pointer to data buffer
   * @retval LOADER_OK (1) if success, LOADER_FAIL (0) otherwise
   */
+__attribute__((section(".text.Write"), used, externally_visible))
 int Write(uint32_t Address, uint32_t Size, uint8_t* buffer)
 {
     uint32_t NumOfPage = 0, NumOfSingle = 0, Addr = 0, count = 0, temp = 0;
@@ -230,6 +234,7 @@ int Write(uint32_t Address, uint32_t Size, uint8_t* buffer)
   * @param  EraseEndAddress: End address of sector to erase  
   * @retval LOADER_OK (1) if success, LOADER_FAIL (0) otherwise
   */
+__attribute__((section(".text.SectorErase"), used, externally_visible))
 int SectorErase(uint32_t EraseStartAddress, uint32_t EraseEndAddress)
 {
     uint32_t BlockAddr;
@@ -255,6 +260,7 @@ int SectorErase(uint32_t EraseStartAddress, uint32_t EraseEndAddress)
   * @param  None
   * @retval LOADER_OK (1) if success, LOADER_FAIL (0) otherwise
   */
+__attribute__((section(".text.MassErase"), used, externally_visible))
 int MassErase(void)
 {
     QSPI_CommandTypeDef sCommand;

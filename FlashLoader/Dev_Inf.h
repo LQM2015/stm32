@@ -33,7 +33,7 @@ typedef struct
 #define NOR_PSRAM         6
 #define NOR_SRAM          7
 
-typedef struct 
+struct StorageInfo 
 {
   char           DeviceName[100];               // Specifies the device name 
   unsigned short DeviceType;                   // Specifies the device type  
@@ -42,7 +42,7 @@ typedef struct
   unsigned long  ProgPageSize;                 // Specifies the device programming page size in Bytes
   unsigned char  EraseValue;                   // Specifies the initial content of erased memory
   SectorInfo     SectorInfo[SECTOR_NUM];       // Specifies list of sectors 
-} StorageInfo;
+};
 
 /* Exported constants --------------------------------------------------------*/
 extern struct StorageInfo const StorageInfo;

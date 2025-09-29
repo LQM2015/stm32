@@ -7,6 +7,9 @@
 
 #include "stm32h7xx_hal.h"
 
+/* External variables --------------------------------------------------------*/
+extern QSPI_HandleTypeDef hqspi;
+
 /**
   * @brief This function handles Non maskable interrupt.
   */
