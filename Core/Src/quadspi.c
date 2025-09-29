@@ -36,23 +36,27 @@ void MX_QUADSPI_Init(void)
   /* USER CODE END QUADSPI_Init 0 */
 
   /* USER CODE BEGIN QUADSPI_Init 1 */
-
+  
   /* USER CODE END QUADSPI_Init 1 */
   hqspi.Instance = QUADSPI;
-  hqspi.Init.ClockPrescaler = 1;
-  hqspi.Init.FifoThreshold = 8;
-  hqspi.Init.SampleShifting = QSPI_SAMPLE_SHIFTING_HALFCYCLE;
-  hqspi.Init.FlashSize = 24;
-  hqspi.Init.ChipSelectHighTime = QSPI_CS_HIGH_TIME_2_CYCLE;
-  hqspi.Init.ClockMode = QSPI_CLOCK_MODE_0;
-  hqspi.Init.FlashID = QSPI_FLASH_ID_1;
-  hqspi.Init.DualFlash = QSPI_DUALFLASH_DISABLE;
+  hqspi.Init.ClockPrescaler = 1;                                    // QSPI clock = HCLK/2 = 120MHz (W25Q256 max 133MHz)
+  hqspi.Init.FifoThreshold = 8;                                     // FIFO threshold 
+  hqspi.Init.SampleShifting = QSPI_SAMPLE_SHIFTING_HALFCYCLE;      // Sample shifting for high speed
+  hqspi.Init.FlashSize = 24;                                        // 2^(24+1) = 32MB for W25Q256
+  hqspi.Init.ChipSelectHighTime = QSPI_CS_HIGH_TIME_2_CYCLE;       // CS high time between commands
+  hqspi.Init.ClockMode = QSPI_CLOCK_MODE_0;                        // Clock mode 0 (CPOL=0, CPHA=0)
+  hqspi.Init.FlashID = QSPI_FLASH_ID_1;                            // Use flash 1
+  hqspi.Init.DualFlash = QSPI_DUALFLASH_DISABLE;                   // Single flash mode
   if (HAL_QSPI_Init(&hqspi) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN QUADSPI_Init 2 */
-
+  DEBUG_INFO("QUADSPI initialized:");
+  DEBUG_INFO("  Clock Prescaler: %d (QSPI Clock = %lu MHz)", 
+             hqspi.Init.ClockPrescaler, HAL_RCC_GetHCLKFreq() / (hqspi.Init.ClockPrescaler + 1) / 1000000);
+  DEBUG_INFO("  Flash Size: 2^(%d+1) = %lu MB", hqspi.Init.FlashSize, (1UL << (hqspi.Init.FlashSize + 1)) / (1024*1024));
+  DEBUG_INFO("  FIFO Threshold: %d", hqspi.Init.FifoThreshold);
   /* USER CODE END QUADSPI_Init 2 */
 
 }
@@ -93,21 +97,21 @@ void HAL_QSPI_MspInit(QSPI_HandleTypeDef* qspiHandle)
     GPIO_InitStruct.Pin = GPIO_PIN_6;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;  // High speed for W25Q256
     GPIO_InitStruct.Alternate = GPIO_AF10_QUADSPI;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_10;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;  // High speed for W25Q256
     GPIO_InitStruct.Alternate = GPIO_AF9_QUADSPI;
     HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;  // High speed for W25Q256
     GPIO_InitStruct.Alternate = GPIO_AF10_QUADSPI;
     HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 

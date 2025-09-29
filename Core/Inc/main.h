@@ -32,6 +32,7 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "debug.h"
+#include "qspi_w25q256.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

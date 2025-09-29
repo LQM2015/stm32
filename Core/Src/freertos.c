@@ -229,8 +229,60 @@ void StartDefaultTask(void *argument)
   DEBUG_INFO("Task Priority: %d", (int)osThreadGetPriority(defaultTaskHandle));
   DEBUG_INFO("Free Heap Size: %d bytes", (int)xPortGetFreeHeapSize());
   
+  /* 延时一下，确保系统完全初始化 */
+  osDelay(100);
+  
+  /* 初始化 W25Q256 Flash */
+  DEBUG_INFO("=== Initializing W25Q256 Flash ===");
+  int8_t flash_status = QSPI_W25Qxx_Init();
+  
+  if(flash_status == QSPI_W25Qxx_OK) {
+    DEBUG_INFO("W25Q256 Flash initialized successfully!");
+    
+    /* 运行Flash测试 */
+    DEBUG_INFO("Starting Flash performance test...");
+    flash_status = QSPI_W25Qxx_Test();
+    
+    if(flash_status == QSPI_W25Qxx_OK) {
+      DEBUG_INFO("Flash test completed successfully!");
+      
+      /* 启用内存映射模式进行高速访问 */
+      DEBUG_INFO("Enabling memory mapped mode...");
+      flash_status = QSPI_W25Qxx_MemoryMappedMode();
+      
+      if(flash_status == QSPI_W25Qxx_OK) {
+        DEBUG_INFO("Memory mapped mode enabled successfully!");
+        DEBUG_INFO("Flash can now be accessed at address 0x%08X", W25Qxx_Mem_Addr);
+        
+        /* 测试内存映射模式访问 */
+        volatile uint32_t *flash_ptr = (volatile uint32_t*)W25Qxx_Mem_Addr;
+        uint32_t test_data = *flash_ptr;
+        DEBUG_INFO("Memory mapped read test: 0x%08lX", test_data);
+      } else {
+        DEBUG_ERROR("Failed to enable memory mapped mode: %s", QSPI_W25Qxx_GetErrorString(flash_status));
+      }
+      
+    } else {
+      DEBUG_ERROR("Flash test failed: %s", QSPI_W25Qxx_GetErrorString(flash_status));
+    }
+    
+  } else {
+    DEBUG_ERROR("W25Q256 Flash initialization failed: %s", QSPI_W25Qxx_GetErrorString(flash_status));
+    DEBUG_ERROR("Please check hardware connections:");
+    DEBUG_ERROR("  PG6  -> W25Q256 CS");
+    DEBUG_ERROR("  PF10 -> W25Q256 CLK");
+    DEBUG_ERROR("  PF8  -> W25Q256 IO0");
+    DEBUG_ERROR("  PF9  -> W25Q256 IO1");
+    DEBUG_ERROR("  PF7  -> W25Q256 IO2");
+    DEBUG_ERROR("  PF6  -> W25Q256 IO3");
+  }
+  
+  DEBUG_INFO("=== System Initialization Complete ===");
+  
   /* Infinite loop */
   uint32_t loop_count = 0;
+  uint32_t flash_test_counter = 0;
+  
   for(;;)
   {
     loop_count++;
@@ -239,6 +291,21 @@ void StartDefaultTask(void *argument)
     if (loop_count % 10000 == 0) {
       DEBUG_INFO("System running - Loop: %lu, Free Heap: %d bytes", 
                  loop_count / 1000, (int)xPortGetFreeHeapSize());
+      
+      /* 每60秒进行一次Flash健康检查 */
+      flash_test_counter++;
+      if(flash_test_counter >= 6) {
+        flash_test_counter = 0;
+        
+        DEBUG_INFO("Performing Flash health check...");
+        uint32_t flash_id = QSPI_W25Qxx_ReadID();
+        if(flash_id == W25Qxx_FLASH_ID) {
+          DEBUG_INFO("Flash health check passed - ID: 0x%06lX", flash_id);
+        } else {
+          DEBUG_WARN("Flash health check failed - ID: 0x%06lX (expected: 0x%06X)", 
+                     flash_id, W25Qxx_FLASH_ID);
+        }
+      }
     }
     
     osDelay(1);
