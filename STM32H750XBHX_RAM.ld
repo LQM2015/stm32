@@ -126,7 +126,7 @@ SECTIONS
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
-  /* Initialized data sections goes into RAM, load LMA copy after code */
+  /* Initialized data sections - put EVERYTHING in RAM_EXEC to generate only 2 Program Headers! */
   .data :
   {
     . = ALIGN(4);
@@ -136,9 +136,9 @@ SECTIONS
 
     . = ALIGN(4);
     _edata = .;        /* define a global symbol at data end */
-  } >DTCMRAM AT> RAM_EXEC
+  } >RAM_EXEC
 
-  /* Uninitialized data section */
+  /* Uninitialized data section - also in RAM_EXEC */
   . = ALIGN(4);
   .bss :
   {
@@ -152,7 +152,7 @@ SECTIONS
     . = ALIGN(4);
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
-  } >DTCMRAM
+  } >RAM_EXEC
 
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
@@ -163,7 +163,7 @@ SECTIONS
     . = . + _Min_Heap_Size;
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
-  } >DTCMRAM
+  } >RAM_EXEC
 
   /* Remove information from the standard libraries */
   /DISCARD/ :

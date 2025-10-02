@@ -20,24 +20,28 @@
 #define DATAFLASH       0x0D
 #define CONFIG          0x0E
 
-// 扇区信息结构
+// 扇区信息结构 - 使用自然对齐（不要pack！）
 struct SectorInfo {
     uint32_t SectorSize;    // 扇区大小
     uint32_t SectorCount;   // 扇区数量
 };
 
-// 存储设备信息结构
+// 存储设备信息结构 - 使用自然对齐（不要pack！）
+// ⚠️ 重要：官方加载器使用自然对齐，DeviceType后有2字节padding！
+// DeviceStartAddress将在偏移104而不是102
 struct StorageInfo {
-    char DeviceName[100];           // 设备名称
-    uint16_t DeviceType;             // 设备类型
-    uint32_t DeviceStartAddress;     // 起始地址
-    uint32_t DeviceSize;             // 设备大小
-    uint32_t PageSize;               // 页大小
-    uint8_t EraseValue;              // 擦除后的值
-    uint32_t PageProgramTime;        // 页编程时间
-    uint32_t SectorEraseTime;        // 扇区擦除时间
-    uint32_t ChipEraseTime;          // 芯片擦除时间
-    struct SectorInfo SectorInfo[10]; // 扇区信息数组
+    char DeviceName[100];           // 设备名称 (offset 0)
+    uint16_t DeviceType;            // 设备类型 (offset 100)
+    // [自动2字节padding]               (offset 102-103)
+    uint32_t DeviceStartAddress;    // 起始地址 (offset 104) ← 关键！
+    uint32_t DeviceSize;            // 设备大小 (offset 108)
+    uint32_t PageSize;              // 页大小 (offset 112)
+    uint8_t EraseValue;             // 擦除后的值 (offset 116)
+    // [自动3字节padding]               (offset 117-119)
+    uint32_t PageProgramTime;       // 页编程时间（100us单位） (offset 120)
+    uint32_t SectorEraseTime;       // 扇区擦除时间（ms） (offset 124)
+    uint32_t ChipEraseTime;         // 芯片擦除时间（ms） (offset 128)
+    struct SectorInfo SectorInfo[10]; // 扇区信息数组 (offset 132)
 };
 
 // 导出设备信息

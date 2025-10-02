@@ -11,7 +11,7 @@
  * - Support W25Q256JV 32MB QSPI Flash
  * - 1-1-4 and 1-4-4 mode operations
  * - DMA support for high speed transfers
- * - Debug output integration
+ * - Debug output integration (can be disabled)
  * - Error handling and status reporting
  *
  * Performance Notes:
@@ -26,7 +26,7 @@
 
 #include "qspi_w25q256.h"
 
-/* External QSPI handle - should be defined in quadspi.c */
+/* External QSPI handle - should be defined in quadspi.c or Loader_Src.c */
 extern QSPI_HandleTypeDef hqspi;
 
 /* Private Variables */

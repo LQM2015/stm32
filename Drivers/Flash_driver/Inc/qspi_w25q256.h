@@ -1,7 +1,19 @@
 #ifndef QSPI_W25Q256_H
 #define QSPI_W25Q256_H
 #include "stm32h7xx_hal.h"
+
+/* Conditional debug include */
+#ifndef EXTERNAL_LOADER
 #include "debug.h"
+#else
+/* Disable all debug macros for external loader */
+#define DEBUG_INFO(...)
+#define DEBUG_ERROR(...)
+#define DEBUG_WARN(...)
+#define DEBUG_FUNCTION_ENTRY()
+#define DEBUG_FUNCTION_EXIT()
+#define DEBUG_FUNCTION_EXIT_VAL(x)
+#endif
 
 
 

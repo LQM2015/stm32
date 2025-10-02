@@ -1,56 +1,28 @@
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
-#include "quadspi.h"
-#include "gpio.h"
+#include "stm32h7xx_hal.h"
+#include "qspi_w25q256.h"
 #include <string.h>
+
+/* External variables --------------------------------------------------------*/
+QSPI_HandleTypeDef hqspi;  // Define QSPI handle for external loader
 
 /* Private function prototypes -----------------------------------------------*/
 static HAL_StatusTypeDef QSPI_LoaderWait(uint32_t timeout_ms);
-void SystemClock_Config(void);
+static void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_QUADSPI_Init_Loader(void);
 
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
 
 /**
-  * @brief  应用程序入口
-  * @retval int
-  */
-int main(void)
-{
-    // HAL库初始化
-    HAL_Init();
-    
-    // 配置系统时钟
-    SystemClock_Config();
-    
-    // 初始化所有外设
-    MX_GPIO_Init();
-    MX_QUADSPI_Init();
-
-    // 初始化外部QSPI Flash
-    if (QSPI_W25Qxx_Init() != QSPI_W25Qxx_OK)
-    {
-        Error_Handler();
-    }
-    
-    // 进入主程序
-    while (1)
-    {
-        // 用户代码区
-    }
-}
-
-/**
-  * @brief  初始化函数
+  * @brief  初始化函数 - External Loader Entry Point
   * @retval int: 0表示失败，1表示成功
   */
 int Init(void)
 {
-    // 复位之前的状态
-    __set_PRIMASK(0);  // 使能中断
-    
-    // 初始化HAL库
+    // HAL库初始化
     HAL_Init();
     
     // 配置系统时钟
@@ -60,7 +32,7 @@ int Init(void)
     MX_GPIO_Init();
     
     // 初始化QSPI
-    MX_QUADSPI_Init();
+    MX_QUADSPI_Init_Loader();
 
     // 初始化W25Q256驱动
     if (QSPI_W25Qxx_Init() != QSPI_W25Qxx_OK)
@@ -268,4 +240,163 @@ static HAL_StatusTypeDef QSPI_LoaderWait(uint32_t timeout_ms)
     return HAL_TIMEOUT;
 }
 
+/**
+  * @brief System Clock Configuration for External Loader
+  * @retval None
+  */
+static void SystemClock_Config(void)
+{
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+    /** Supply configuration update enable
+    */
+    HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
+
+    /** Configure the main internal regulator output voltage
+    */
+    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
+
+    while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
+
+    /** Initializes the RCC Oscillators according to the specified parameters
+    * in the RCC_OscInitTypeDef structure.
+    */
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLM = 5;      // 25MHz / 5 = 5MHz
+    RCC_OscInitStruct.PLL.PLLN = 96;     // 5MHz * 96 = 480MHz
+    RCC_OscInitStruct.PLL.PLLP = 2;      // 480MHz / 2 = 240MHz (SYSCLK)
+    RCC_OscInitStruct.PLL.PLLQ = 4;
+    RCC_OscInitStruct.PLL.PLLR = 2;
+    RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
+    RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
+    RCC_OscInitStruct.PLL.PLLFRACN = 0;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+        while(1);
+    }
+
+    /** Initializes the CPU, AHB and APB buses clocks
+    */
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                                |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
+                                |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV2;    // 240MHz / 2 = 120MHz
+    RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV2;   // 120MHz
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV2;   // 60MHz
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;   // 60MHz
+    RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;   // 60MHz
+
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+    {
+        while(1);
+    }
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+    /* GPIO Ports Clock Enable */
+    __HAL_RCC_GPIOH_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+    __HAL_RCC_GPIOG_CLK_ENABLE();
+}
+
+/**
+  * @brief QUADSPI Initialization Function for Loader
+  * @param None
+  * @retval None
+  */
+static void MX_QUADSPI_Init_Loader(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+    /** Initializes the peripherals clock
+    */
+    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_QSPI;
+    PeriphClkInitStruct.QspiClockSelection = RCC_QSPICLKSOURCE_D1HCLK;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+    {
+        while(1);
+    }
+
+    /* QUADSPI clock enable */
+    __HAL_RCC_QSPI_CLK_ENABLE();
+
+    __HAL_RCC_GPIOG_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+    
+    /**QUADSPI GPIO Configuration
+    PG6     ------> QUADSPI_BK1_NCS
+    PF6     ------> QUADSPI_BK1_IO3
+    PF7     ------> QUADSPI_BK1_IO2
+    PF8     ------> QUADSPI_BK1_IO0
+    PF10    ------> QUADSPI_CLK
+    PF9     ------> QUADSPI_BK1_IO1
+    */
+    GPIO_InitStruct.Pin = GPIO_PIN_6;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF10_QUADSPI;
+    HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_10;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF9_QUADSPI;
+    HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF10_QUADSPI;
+    HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+    /* QUADSPI initialization */
+    hqspi.Instance = QUADSPI;
+    hqspi.Init.ClockPrescaler = 1;
+    hqspi.Init.FifoThreshold = 4;
+    hqspi.Init.SampleShifting = QSPI_SAMPLE_SHIFTING_HALFCYCLE;
+    hqspi.Init.FlashSize = 24;                             // 2^(24+1) = 32MB
+    hqspi.Init.ChipSelectHighTime = QSPI_CS_HIGH_TIME_2_CYCLE;
+    hqspi.Init.ClockMode = QSPI_CLOCK_MODE_0;
+    hqspi.Init.FlashID = QSPI_FLASH_ID_1;
+    hqspi.Init.DualFlash = QSPI_DUALFLASH_DISABLE;
+    
+    if (HAL_QSPI_Init(&hqspi) != HAL_OK)
+    {
+        while(1);
+    }
+}
+
 /* USER CODE END 1 */
+
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+#ifdef USE_FULL_ASSERT
+void assert_failed(uint8_t *file, uint32_t line)
+{
+    /* Infinite loop for debugging */
+    while (1)
+    {
+    }
+}
+#endif /* USE_FULL_ASSERT */
