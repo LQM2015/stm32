@@ -75,7 +75,10 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  #if !defined(USE_BOOTLOADER)
+    // 应用程序模式：重定位向量表到外部 Flash
+    SCB->VTOR = 0x90000000;
+  #endif
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/

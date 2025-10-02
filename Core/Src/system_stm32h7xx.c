@@ -312,6 +312,11 @@ void SystemInit (void)
 #endif /* USER_VECT_TAB_ADDRESS */
 
 #endif /*DUAL_CORE && CORE_CM4*/
+
+  #if !defined(USE_BOOTLOADER)
+    /* 重定位向量表到外部 Flash */
+    SCB->VTOR = 0x90000000;
+  #endif
 }
 
 /**
