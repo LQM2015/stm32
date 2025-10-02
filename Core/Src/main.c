@@ -27,7 +27,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#ifdef USE_BOOTLOADER
+#include "bootloader.h"
+#include "qspi_w25q256.h"
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -109,6 +112,32 @@ int main(void)
   MX_QUADSPI_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  
+#ifdef USE_BOOTLOADER
+  /* ==================== Bootloader Mode ==================== */
+  printf("\r\n========================================\r\n");
+  printf("STM32H750 Bootloader Mode\r\n");
+  printf("========================================\r\n");
+  
+  /* 初始化 Bootloader */
+  Bootloader_Init();
+  
+  /* 延时一小段时间，让串口信息输出完整 */
+  HAL_Delay(100);
+  
+  /* 跳转到外部 Flash 应用程序 */
+  Bootloader_JumpToApplication();
+  
+  /* 如果跳转失败，会执行到这里 */
+  printf("ERROR: Failed to jump to application!\r\n");
+  printf("System halted.\r\n");
+  while(1)
+  {
+    HAL_Delay(1000);
+  }
+  
+#else
+  /* ==================== Normal Application Mode ==================== */
   /* 初始化调试输出功能 */
   DEBUG_INFO("Starting main function initialization...");
   
@@ -120,14 +149,18 @@ int main(void)
   DEBUG_INFO("DMA and MDMA initialized");
   DEBUG_INFO("GPIO initialized");
   DEBUG_INFO("System ready, starting FreeRTOS scheduler...");
+#endif
+  
   /* USER CODE END 2 */
 
   /* Init scheduler */
+#ifndef USE_BOOTLOADER
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
   MX_FREERTOS_Init();
 
   /* Start scheduler */
   osKernelStart();
+#endif
 
   /* We should never get here as control is now taken by the scheduler */
 
