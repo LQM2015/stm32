@@ -157,11 +157,18 @@ int main(void)
   /* Normal application mode */
 
   /* USER CODE BEGIN 1 */
-
+  /* 极早期调试输出 - 使用直接寄存器操作,不依赖 HAL */
+  /* UART1 已经被 bootloader 初始化,可以直接使用 */
+  /* 这样即使后续初始化失败也能看到输出 */
+  
+  /* APP 启动标记 - 使用 DEBUG 宏(需要 UART 工作) */
+  /* 但 UART 应该已经被 bootloader 初始化过了 */
+  
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
-  MPU_Config();
+  /* 临时禁用 MPU 测试 - MPU 配置可能阻止外部 Flash 执行 */
+  // MPU_Config();
 
   /* Enable the CPU Cache */
 
@@ -191,10 +198,12 @@ int main(void)
   MX_GPIO_Init();
   MX_MDMA_Init();
   MX_DMA_Init();
-  MX_QUADSPI_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
+  DEBUG_INFO("=== APP SUCCESSFULLY STARTED ===");
+  DEBUG_INFO("APP is running from external Flash at 0x90000000");
+  DEBUG_INFO("Bootloader handoff successful!");
   DEBUG_INFO("Starting main function initialization...");
   
   /* 运行调试测试 */
