@@ -167,8 +167,7 @@ int main(void)
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
-  /* 临时禁用 MPU 测试 - MPU 配置可能阻止外部 Flash 执行 */
-  // MPU_Config();
+  MPU_Config();
 
   /* Enable the CPU Cache */
 
@@ -304,33 +303,97 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 #if !defined(BOOTLOADER)
- /* MPU Configuration */
-
+/**
+ * @brief  配置 MPU (Memory Protection Unit)
+ * @note   为不同内存区域设置合适的访问权限和缓存策略
+ *         提高系统安全性和性能
+ */
 static void MPU_Config(void)
 {
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
-  /* Disables the MPU */
+  /* 禁用 MPU */
   HAL_MPU_Disable();
 
-  /** Initializes and configures the Region and the memory to be protected
-  */
+  /* ========== Region 0: 外部 QSPI Flash (APP 代码) ========== */
+  /* 地址: 0x90000000 - 0x91FFFFFF (32MB)
+   * 用途: 存储和执行 APP 代码
+   * 配置: 可读可执行,启用缓存以提高性能
+   */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-  MPU_InitStruct.BaseAddress = 0x0;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
-  MPU_InitStruct.SubRegionDisable = 0x87;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
-  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.BaseAddress = 0x90000000;          // 外部 Flash 起始地址
+  MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;       // 32MB W25Q256
+  MPU_InitStruct.SubRegionDisable = 0x00;           // 启用所有子区域
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;     // Normal memory
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;        // 可读可写
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;      // 允许执行代码!
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;               // 启用缓存(重要!)
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-
+  
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
-  /* Enables the MPU */
-  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
+  /* ========== Region 1: DTCM RAM (堆栈) ========== */
+  /* 地址: 0x20000000 - 0x2001FFFF (128KB)
+   * 用途: 主堆栈,快速访问的变量
+   * 配置: 可读可写可执行,启用缓存
+   */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+  MPU_InitStruct.BaseAddress = 0x20000000;          // DTCM RAM
+  MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;      // 允许从 RAM 执行
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+  
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* ========== Region 2: AXI SRAM (D1 域 - 主 RAM) ========== */
+  /* 地址: 0x24000000 - 0x2407FFFF (512KB)
+   * 用途: 主要的数据存储区域,DMA 缓冲区
+   * 配置: 可读可写可执行,启用缓存
+   */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER2;
+  MPU_InitStruct.BaseAddress = 0x24000000;          // AXI SRAM
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+  
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* ========== Region 3: 外设区域 ========== */
+  /* 地址: 0x40000000 - 0x5FFFFFFF (512MB)
+   * 用途: 所有外设寄存器 (UART, GPIO, QSPI, DMA 等)
+   * 配置: 可读可写,不可执行,不可缓存
+   * 注意: 外设寄存器必须不可缓存!否则会读到旧值
+   */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER3;
+  MPU_InitStruct.BaseAddress = 0x40000000;          // 外设基地址
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512MB;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;     // Device memory
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;     // 外设不可执行
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;           // 外设不可缓存!
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+  
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* 启用 MPU,特权模式下使用默认内存映射 */
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
 #endif /* !BOOTLOADER */
 
