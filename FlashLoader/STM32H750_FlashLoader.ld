@@ -24,8 +24,11 @@ MEMORY
   /* Special region for StorageInfo - VirtAddr must be 0 for STM32CubeProgrammer */
   INFO (r)   : ORIGIN = 0x00000000, LENGTH = 1K
   
-  /* RAM region for code and data - using AXI SRAM */
-  RAM (xrw)  : ORIGIN = 0x24000000, LENGTH = 512K
+  /* RAM region for code and data - using AXI SRAM
+   * IMPORTANT: Start at 0x24000004 (not 0x24000000) to match IAR convention
+   * STM32CubeProgrammer expects this 4-byte offset!
+   */
+  RAM (xrw)  : ORIGIN = 0x24000004, LENGTH = 512K - 4
 }
 
 /* End of RAM - used by _sbrk */

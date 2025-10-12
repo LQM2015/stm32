@@ -32,6 +32,10 @@ static void MX_QUADSPI_Init_Loader(void);
   */
 int Init(void)
 {
+    // System initialization (reset clock configuration, enable FPU)
+    // Similar to EWARM reference implementation
+    SystemInit();
+    
     // Initialize HAL library
     HAL_Init();
     
@@ -69,6 +73,9 @@ int Init(void)
   */
 int Write(uint32_t Address, uint32_t Size, uint8_t* buffer)
 {
+    // Mask address to ensure it's within valid range (similar to EWARM reference)
+    Address &= 0x0FFFFFFF;
+    
     // Handle zero-size write as success
     if (Size == 0)
     {
@@ -130,10 +137,14 @@ int Read(uint32_t Address, uint32_t Size, uint8_t* buffer)
 int SectorErase(uint32_t EraseStartAddress, uint32_t EraseEndAddress)
 {
     uint32_t sector_size = 0x1000;  // 4KB sector size for W25Q256
-    uint32_t current_addr = EraseStartAddress;
+    uint32_t current_addr;
+    
+    // Mask addresses to ensure they're within valid range (similar to EWARM reference)
+    EraseStartAddress &= 0x0FFFFFFF;
+    EraseEndAddress &= 0x0FFFFFFF;
     
     // Align start address to sector boundary
-    current_addr = (current_addr / sector_size) * sector_size;
+    current_addr = (EraseStartAddress / sector_size) * sector_size;
     
     // Erase all sectors in the range
     while (current_addr < EraseEndAddress)

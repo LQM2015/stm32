@@ -448,7 +448,8 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+/* Note: assert_failed is defined in Loader_Src.c for FLASH_LOADER configuration */
+#if defined(USE_FULL_ASSERT) && !defined(FLASH_LOADER)
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
@@ -461,7 +462,7 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-#if !defined(FLASH_LOADER) && !defined(BOOTLOADER)
+#if !defined(BOOTLOADER)
   DEBUG_ERROR("=== ASSERTION FAILED ===");
   DEBUG_ERROR("File: %s", file);
   DEBUG_ERROR("Line: %lu", line);
@@ -470,7 +471,7 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* 调用错误处理函数 */
   Error_Handler();
 #else
-  /* FLASH_LOADER or BOOTLOADER mode - minimal assert handling */
+  /* BOOTLOADER mode - minimal assert handling */
   (void)file;
   (void)line;
   while(1)
@@ -480,4 +481,4 @@ void assert_failed(uint8_t *file, uint32_t line)
 #endif
   /* USER CODE END 6 */
 }
-#endif /* USE_FULL_ASSERT */
+#endif /* USE_FULL_ASSERT && !FLASH_LOADER */
