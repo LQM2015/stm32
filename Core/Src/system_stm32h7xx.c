@@ -93,37 +93,40 @@
 /* #define USER_VECT_TAB_ADDRESS */
 
 #if defined(USER_VECT_TAB_ADDRESS)
-#if defined(DUAL_CORE) && defined(CORE_CM4)
-/*!< Uncomment the following line if you need to relocate your vector Table
-     in D2 AXI SRAM else user remap will be done in FLASH BANK2. */
-/* #define VECT_TAB_SRAM */
-#if defined(VECT_TAB_SRAM)
-#define VECT_TAB_BASE_ADDRESS   D2_AXISRAM_BASE   /*!< Vector Table base address field.
-                                                       This value must be a multiple of 0x400. */
-#define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
-                                                       This value must be a multiple of 0x400. */
-#else
-#define VECT_TAB_BASE_ADDRESS   FLASH_BANK2_BASE  /*!< Vector Table base address field.
-                                                       This value must be a multiple of 0x400. */
-#define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
-                                                       This value must be a multiple of 0x400. */
-#endif /* VECT_TAB_SRAM */
-#else
-/*!< Uncomment the following line if you need to relocate your vector Table
-     in D1 AXI SRAM else user remap will be done in FLASH BANK1. */
-/* #define VECT_TAB_SRAM */
-#if defined(VECT_TAB_SRAM)
-#define VECT_TAB_BASE_ADDRESS   D1_AXISRAM_BASE   /*!< Vector Table base address field.
-                                                       This value must be a multiple of 0x400. */
-#define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
-                                                       This value must be a multiple of 0x400. */
-#else
-#define VECT_TAB_BASE_ADDRESS   FLASH_BANK1_BASE  /*!< Vector Table base address field.
-                                                       This value must be a multiple of 0x400. */
-#define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
-                                                       This value must be a multiple of 0x400. */
-#endif /* VECT_TAB_SRAM */
-#endif /* DUAL_CORE && CORE_CM4 */
+/* If VECT_TAB_BASE_ADDRESS is already defined in stm32h7xx_hal_conf.h, don't redefine it */
+#if !defined(VECT_TAB_BASE_ADDRESS)
+  #if defined(DUAL_CORE) && defined(CORE_CM4)
+  /*!< Uncomment the following line if you need to relocate your vector Table
+       in D2 AXI SRAM else user remap will be done in FLASH BANK2. */
+  /* #define VECT_TAB_SRAM */
+  #if defined(VECT_TAB_SRAM)
+  #define VECT_TAB_BASE_ADDRESS   D2_AXISRAM_BASE   /*!< Vector Table base address field.
+                                                         This value must be a multiple of 0x400. */
+  #define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
+                                                         This value must be a multiple of 0x400. */
+  #else
+  #define VECT_TAB_BASE_ADDRESS   FLASH_BANK2_BASE  /*!< Vector Table base address field.
+                                                         This value must be a multiple of 0x400. */
+  #define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
+                                                         This value must be a multiple of 0x400. */
+  #endif /* VECT_TAB_SRAM */
+  #else
+  /*!< Uncomment the following line if you need to relocate your vector Table
+       in D1 AXI SRAM else user remap will be done in FLASH BANK1. */
+  /* #define VECT_TAB_SRAM */
+  #if defined(VECT_TAB_SRAM)
+  #define VECT_TAB_BASE_ADDRESS   D1_AXISRAM_BASE   /*!< Vector Table base address field.
+                                                         This value must be a multiple of 0x400. */
+  #define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
+                                                         This value must be a multiple of 0x400. */
+  #else
+  #define VECT_TAB_BASE_ADDRESS   FLASH_BANK1_BASE  /*!< Vector Table base address field.
+                                                         This value must be a multiple of 0x400. */
+  #define VECT_TAB_OFFSET         0x00000000U       /*!< Vector Table base offset field.
+                                                         This value must be a multiple of 0x400. */
+  #endif /* VECT_TAB_SRAM */
+  #endif /* DUAL_CORE && CORE_CM4 */
+#endif /* !defined(VECT_TAB_BASE_ADDRESS) */
 #endif /* USER_VECT_TAB_ADDRESS */
 /******************************************************************************/
 

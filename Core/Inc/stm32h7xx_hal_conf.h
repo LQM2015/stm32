@@ -490,6 +490,17 @@
  #include "stm32h7xx_hal_hcd.h"
 #endif /* HAL_HCD_MODULE_ENABLED */
 
+/* ########################### Vector Table Configuration #################### */
+/**
+  * @brief  Vector Table Relocation for different build configurations
+  */
+#if !defined(FLASH_LOADER) && !defined(BOOTLOADER)
+  /* APP mode: Running from external Flash */
+  #define USER_VECT_TAB_ADDRESS
+  #define VECT_TAB_BASE_ADDRESS    0x90000000UL  /* External QSPI Flash base address */
+  #define VECT_TAB_OFFSET          0x00000000UL  /* No offset within external Flash */
+#endif
+
 /* Exported macro ------------------------------------------------------------*/
 #ifdef  USE_FULL_ASSERT
 /**

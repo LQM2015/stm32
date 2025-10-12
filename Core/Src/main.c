@@ -19,7 +19,14 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
-#ifndef FLASH_LOADER
+#if defined(BOOTLOADER)
+/* Bootloader mode - only essential includes */
+#include "quadspi.h"
+#include "usart.h"
+#include "gpio.h"
+#include "bootloader.h"
+#elif !defined(FLASH_LOADER)
+/* Normal application mode */
 #include "cmsis_os.h"
 #include "dma.h"
 #include "mdma.h"
@@ -73,7 +80,66 @@ void MX_FREERTOS_Init(void);
   */
 int main(void)
 {
-#ifdef FLASH_LOADER
+#ifdef BOOTLOADER
+  /* Bootloader mode - Initialize and jump to external Flash application */
+  
+  /* Enable I-Cache and D-Cache */
+  SCB_EnableICache();
+  SCB_EnableDCache();
+  
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+  
+  /* Configure the system clock */
+  SystemClock_Config();
+  
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_USART1_UART_Init();
+  MX_QUADSPI_Init();
+  
+  /* Initialize bootloader */
+  Bootloader_Init();
+  Bootloader_PrintInfo();
+  
+  /* Initialize QSPI Flash */
+  DEBUG_INFO("Initializing QSPI Flash...");
+  int8_t qspi_status = QSPI_W25Qxx_Init();
+  if (qspi_status == QSPI_W25Qxx_OK) {
+    DEBUG_INFO("QSPI Flash initialized successfully");
+    
+    /* Read Flash ID for verification */
+    uint32_t flash_id = QSPI_W25Qxx_ReadID();
+    DEBUG_INFO("Flash ID: 0x%06X (Expected: 0xEF4019 for W25Q256)", flash_id);
+    
+    /* Enter memory-mapped mode */
+    DEBUG_INFO("Entering memory-mapped mode...");
+    if (QSPI_W25Qxx_MemoryMappedMode() == QSPI_W25Qxx_OK) {
+      DEBUG_INFO("Memory-mapped mode activated");
+      
+      /* Verify application */
+      if (Bootloader_VerifyApplication()) {
+        /* Jump to application */
+        Bootloader_JumpToApplication();
+        /* Never returns */
+      } else {
+        DEBUG_ERROR("Application verification failed!");
+        DEBUG_ERROR("Cannot jump to application");
+      }
+    } else {
+      DEBUG_ERROR("Failed to enter memory-mapped mode!");
+    }
+  } else {
+    DEBUG_ERROR("QSPI Flash initialization failed!");
+  }
+  
+  /* If we reach here, something went wrong */
+  DEBUG_ERROR("Bootloader stuck - cannot proceed");
+  while(1) {
+    HAL_Delay(1000);
+  }
+  
+#elif defined(FLASH_LOADER)
   /* Flash Loader mode - minimal initialization */
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
@@ -162,7 +228,7 @@ int main(void)
     HAL_Delay(1000);
   }
   /* USER CODE END 3 */
-#endif /* !FLASH_LOADER */
+#endif /* Normal application mode */
 }
 
 /**
@@ -228,9 +294,10 @@ void SystemClock_Config(void)
 
 /* USER CODE END 4 */
 
+#if !defined(BOOTLOADER)
  /* MPU Configuration */
 
-void MPU_Config(void)
+static void MPU_Config(void)
 {
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
@@ -256,6 +323,7 @@ void MPU_Config(void)
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
 }
+#endif /* !BOOTLOADER */
 
 /**
   * @brief  Period elapsed callback in non blocking mode
@@ -308,7 +376,6 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifndef FLASH_LOADER
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
@@ -322,7 +389,7 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  
+#if !defined(FLASH_LOADER) && !defined(BOOTLOADER)
   DEBUG_ERROR("=== ASSERTION FAILED ===");
   DEBUG_ERROR("File: %s", file);
   DEBUG_ERROR("Line: %lu", line);
@@ -330,7 +397,15 @@ void assert_failed(uint8_t *file, uint32_t line)
   
   /* 调用错误处理函数 */
   Error_Handler();
+#else
+  /* FLASH_LOADER or BOOTLOADER mode - minimal assert handling */
+  (void)file;
+  (void)line;
+  while(1)
+  {
+    /* Halt execution on assertion failure */
+  }
+#endif
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-#endif /* !FLASH_LOADER */

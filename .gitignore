@@ -1,3 +1,5 @@
 Debug
 FlashLoader_Debug
 .stm32cubeide_ws
+BOOT_STM32H750
+Bootloader_Debug
