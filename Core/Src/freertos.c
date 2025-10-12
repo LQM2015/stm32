@@ -233,14 +233,22 @@ void StartDefaultTask(void *argument)
   /* 延时一下，确保系统完全初始化 */
   osDelay(100);
   
-  /* 初始化 W25Q256 Flash */
-  DEBUG_INFO("=== Initializing W25Q256 Flash ===");
+  /* ⚠️ 注意: APP运行在外部Flash上,不应该对Flash进行初始化、擦除或写入操作!
+   * QSPI接口已经由bootloader配置好,程序可以直接从Flash执行
+   * 如果需要访问Flash数据,只能进行读取操作,且要避免访问正在执行的代码区域
+   */
+  
+  /* 初始化 W25Q256 Flash - 仅用于调试目的,生产环境应禁用 */
+  DEBUG_INFO("=== W25Q256 Flash Status Check ===");
+  DEBUG_WARN("⚠️ Running from external Flash - Flash operations are DISABLED for safety");
+  
+  #if 0  /* 禁用Flash测试 - 避免破坏正在运行的程序代码 */
   int8_t flash_status = QSPI_W25Qxx_Init();
   
   if(flash_status == QSPI_W25Qxx_OK) {
     DEBUG_INFO("W25Q256 Flash initialized successfully!");
     
-    /* 运行Flash测试 */
+    /* ⚠️ 危险操作: 会擦除Flash区域! 仅在确认不会影响程序代码时使用 */
     DEBUG_INFO("Starting Flash performance test...");
     flash_status = QSPI_W25Qxx_Test();
     
@@ -276,6 +284,17 @@ void StartDefaultTask(void *argument)
     DEBUG_ERROR("  PF9  -> W25Q256 IO1");
     DEBUG_ERROR("  PF7  -> W25Q256 IO2");
     DEBUG_ERROR("  PF6  -> W25Q256 IO3");
+  }
+  #endif
+  
+  /* 读取Flash芯片ID - 只读操作,安全 */
+  uint32_t flash_id = QSPI_W25Qxx_ReadID();
+  if(flash_id == W25Qxx_FLASH_ID) {
+    DEBUG_INFO("✓ W25Q256 Flash detected, ID: 0x%06lX", flash_id);
+    DEBUG_INFO("  Flash Size: 32MB (256Mbit)");
+    DEBUG_INFO("  Program is running from this Flash");
+  } else {
+    DEBUG_ERROR("✗ Flash ID mismatch! Expected: 0x%06X, Got: 0x%06lX", W25Qxx_FLASH_ID, flash_id);
   }
   
   DEBUG_INFO("=== System Initialization Complete ===");

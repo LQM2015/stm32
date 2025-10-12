@@ -14,6 +14,10 @@
 /* Entry Point */
 ENTRY(Init)
 
+/* Heap and Stack sizes */
+_Min_Heap_Size = 0x200;      /* 512 bytes minimum heap */
+_Min_Stack_Size = 0x400;     /* 1024 bytes minimum stack */
+
 /* Memory Regions for External Loader */
 MEMORY
 {
@@ -23,6 +27,9 @@ MEMORY
   /* RAM region for code and data - using AXI SRAM */
   RAM (xrw)  : ORIGIN = 0x24000000, LENGTH = 512K
 }
+
+/* End of RAM - used by _sbrk */
+_estack = ORIGIN(RAM) + LENGTH(RAM);
 
 /* Sections */
 SECTIONS

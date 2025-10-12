@@ -24,8 +24,11 @@
 
 /* USER CODE END 0 */
 
+/* Only define hqspi for APP mode, in Flash Loader mode it's defined in Loader_Src.c */
+#ifndef FLASH_LOADER
 QSPI_HandleTypeDef hqspi;
 MDMA_HandleTypeDef hmdma_quadspi_fifo_th;
+#endif
 
 /* QUADSPI init function */
 void MX_QUADSPI_Init(void)
@@ -115,7 +118,8 @@ void HAL_QSPI_MspInit(QSPI_HandleTypeDef* qspiHandle)
     GPIO_InitStruct.Alternate = GPIO_AF10_QUADSPI;
     HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-    /* QUADSPI MDMA Init */
+#ifndef FLASH_LOADER
+    /* QUADSPI MDMA Init - Only for APP mode */
     /* QUADSPI_FIFO_TH Init */
     hmdma_quadspi_fifo_th.Instance = MDMA_Channel0;
     hmdma_quadspi_fifo_th.Init.Request = MDMA_REQUEST_QUADSPI_FIFO_TH;
@@ -147,6 +151,7 @@ void HAL_QSPI_MspInit(QSPI_HandleTypeDef* qspiHandle)
     /* QUADSPI interrupt Init */
     HAL_NVIC_SetPriority(QUADSPI_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(QUADSPI_IRQn);
+#endif /* !FLASH_LOADER */
   /* USER CODE BEGIN QUADSPI_MspInit 1 */
 
   /* USER CODE END QUADSPI_MspInit 1 */
@@ -177,11 +182,13 @@ void HAL_QSPI_MspDeInit(QSPI_HandleTypeDef* qspiHandle)
     HAL_GPIO_DeInit(GPIOF, GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_10
                           |GPIO_PIN_9);
 
-    /* QUADSPI MDMA DeInit */
+#ifndef FLASH_LOADER
+    /* QUADSPI MDMA DeInit - Only for APP mode */
     HAL_MDMA_DeInit(qspiHandle->hmdma);
 
     /* QUADSPI interrupt Deinit */
     HAL_NVIC_DisableIRQ(QUADSPI_IRQn);
+#endif /* !FLASH_LOADER */
   /* USER CODE BEGIN QUADSPI_MspDeInit 1 */
 
   /* USER CODE END QUADSPI_MspDeInit 1 */

@@ -1,7 +1,15 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx_hal.h"
+
+/* This file is only compiled for Flash Loader configuration */
+#ifdef FLASH_LOADER
+
 #include "qspi_w25q256.h"
 #include <string.h>
+
+/* STM32CubeProgrammer External Loader Return Values */
+#define LOADER_OK              1    /* Operation succeeded */
+#define LOADER_FAIL            0    /* Operation failed */
 
 /* External variables --------------------------------------------------------*/
 QSPI_HandleTypeDef hqspi;  // Define QSPI handle for external loader
@@ -17,143 +25,166 @@ static void MX_QUADSPI_Init_Loader(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  初始化函数 - External Loader Entry Point
-  * @retval int: 0表示失败，1表示成功
+  * @brief  Initialize the external flash loader
+  *         This function is called by STM32CubeProgrammer
+  * @retval LOADER_OK (1) on success, LOADER_FAIL (0) on failure
+  * @note   Entry point for STM32CubeProgrammer
   */
 int Init(void)
 {
-    // HAL库初始化
+    // Initialize HAL library
     HAL_Init();
     
-    // 配置系统时钟
+    // Configure system clock
     SystemClock_Config();
     
-    // 初始化GPIO
+    // Initialize GPIO
     MX_GPIO_Init();
     
-    // 初始化QSPI
+    // Initialize QSPI peripheral
     MX_QUADSPI_Init_Loader();
 
-    // 初始化W25Q256驱动
+    // Initialize W25Q256 Flash driver
     if (QSPI_W25Qxx_Init() != QSPI_W25Qxx_OK)
     {
-        return 0;
+        return LOADER_FAIL;
     }
 
-    // 检查Flash ID
-    uint32_t id = QSPI_W25Qxx_ReadID();
-    if (id != W25Qxx_FLASH_ID)
+    // Verify Flash chip ID
+    uint32_t flash_id = QSPI_W25Qxx_ReadID();
+    if (flash_id != W25Qxx_FLASH_ID)
     {
-        return 0;  // 失败返回0
+        return LOADER_FAIL;  // Wrong chip or communication error
     }
     
-    return 1;  // 成功返回1
+    return LOADER_OK;  // Initialization successful
 }
 
 /**
-  * @brief  写入函数
-  * @param  Address: 写入地址
-  * @param  Size: 写入大小
-  * @param  buffer: 数据缓冲区
-  * @retval int: 0表示失败，1表示成功
+  * @brief  Write data to external flash memory
+  * @param  Address: Write address (relative to device start address)
+  * @param  Size: Number of bytes to write
+  * @param  buffer: Pointer to data buffer
+  * @retval LOADER_OK (1) on success, LOADER_FAIL (0) on failure
   */
 int Write(uint32_t Address, uint32_t Size, uint8_t* buffer)
 {
+    // Handle zero-size write as success
     if (Size == 0)
     {
-        return 1;
+        return LOADER_OK;
     }
 
+    // Validate parameters
+    if (buffer == NULL)
+    {
+        return LOADER_FAIL;
+    }
+
+    // Write data to flash
     if (QSPI_W25Qxx_WriteBuffer(buffer, Address, Size) != QSPI_W25Qxx_OK)
     {
-        return 0;
+        return LOADER_FAIL;
     }
 
+    // Wait for write operation to complete
     if (QSPI_LoaderWait(5000) != HAL_OK)
     {
-        return 0;
+        return LOADER_FAIL;
     }
 
-    return 1;  // 成功返回1
+    return LOADER_OK;
 }
 
 /**
-  * @brief  读取函数
-  * @param  Address: 读取地址
-  * @param  Size: 读取大小
-  * @param  buffer: 数据缓冲区
-  * @retval int: 0表示失败，1表示成功
+  * @brief  Read data from external flash memory
+  * @param  Address: Read address (relative to device start address)
+  * @param  Size: Number of bytes to read
+  * @param  buffer: Pointer to data buffer
+  * @retval LOADER_OK (1) on success, LOADER_FAIL (0) on failure
   */
 int Read(uint32_t Address, uint32_t Size, uint8_t* buffer)
 {
+    // Validate parameters
+    if (buffer == NULL || Size == 0)
+    {
+        return LOADER_FAIL;
+    }
+
+    // Read data from flash
     if (QSPI_W25Qxx_ReadBuffer(buffer, Address, Size) != QSPI_W25Qxx_OK)
     {
-        return 0;  // 失败返回0
+        return LOADER_FAIL;
     }
-    return 1;  // 成功返回1
+    
+    return LOADER_OK;
 }
 
 /**
-  * @brief  扇区擦除函数
-  * @param  EraseStartAddress: 擦除开始地址
-  * @param  EraseEndAddress: 擦除结束地址
-  * @retval int: 0表示失败，1表示成功
+  * @brief  Erase flash sectors in specified address range
+  * @param  EraseStartAddress: Start address of erase operation
+  * @param  EraseEndAddress: End address of erase operation
+  * @retval LOADER_OK (1) on success, LOADER_FAIL (0) on failure
+  * @note   Addresses are automatically aligned to sector boundaries
   */
 int SectorErase(uint32_t EraseStartAddress, uint32_t EraseEndAddress)
 {
-    uint32_t sector_size = 0x1000;  // 4KB扇区大小
+    uint32_t sector_size = 0x1000;  // 4KB sector size for W25Q256
     uint32_t current_addr = EraseStartAddress;
     
-    // 确保地址对齐到扇区
+    // Align start address to sector boundary
     current_addr = (current_addr / sector_size) * sector_size;
     
+    // Erase all sectors in the range
     while (current_addr < EraseEndAddress)
     {
-        // 擦除4KB扇区
+        // Erase 4KB sector
         if (QSPI_W25Qxx_SectorErase(current_addr) != QSPI_W25Qxx_OK)
         {
-            return 0;  // 失败返回0
+            return LOADER_FAIL;
         }
 
-        // 等待擦除完成
+        // Wait for erase operation to complete (max 3 seconds per sector)
         if (QSPI_LoaderWait(3000) != HAL_OK)
         {
-            return 0;
+            return LOADER_FAIL;
         }
 
         current_addr += sector_size;
     }
     
-    return 1;  // 成功返回1
+    return LOADER_OK;
 }
 
 /**
-  * @brief  整片擦除函数
-  * @retval int: 0表示失败，1表示成功
+  * @brief  Erase entire flash chip
+  * @retval LOADER_OK (1) on success, LOADER_FAIL (0) on failure
+  * @note   This operation may take a long time (typically 80-100 seconds for W25Q256)
   */
 int MassErase(void)
 {
-    // 执行芯片擦除
+    // Execute chip erase command
     if (QSPI_W25Qxx_ChipErase() != QSPI_W25Qxx_OK)
     {
-        return 0;  // 失败返回0
+        return LOADER_FAIL;
     }
 
-    // 等待擦除完成（芯片擦除时间较长）
+    // Wait for erase to complete (max 200 seconds for 32MB flash)
     if (QSPI_LoaderWait(200000) != HAL_OK)
     {
-        return 0;
+        return LOADER_FAIL;
     }
     
-    return 1;  // 成功返回1
+    return LOADER_OK;
 }
 
 /**
-  * @brief  校验和计算函数
-  * @param  StartAddress: 起始地址
-  * @param  Size: 数据大小
-  * @param  InitVal: 初始化值
-  * @retval uint32_t: 计算得到的校验和
+  * @brief  Calculate checksum of flash memory region
+  * @param  StartAddress: Start address for checksum calculation
+  * @param  Size: Number of bytes to include in checksum
+  * @param  InitVal: Initial checksum value
+  * @retval Calculated checksum value
+  * @note   Uses simple byte addition algorithm for compatibility
   */
 uint32_t CheckSum(uint32_t StartAddress, uint32_t Size, uint32_t InitVal)
 {
@@ -166,12 +197,13 @@ uint32_t CheckSum(uint32_t StartAddress, uint32_t Size, uint32_t InitVal)
     {
         uint32_t read_size = (remaining > sizeof(buffer)) ? sizeof(buffer) : remaining;
 
+        // Read data from flash
         if (QSPI_W25Qxx_ReadBuffer(buffer, current_addr, read_size) != QSPI_W25Qxx_OK)
         {
-            return checksum;  // 读取失败，返回当前校验和
+            return checksum;  // Return current checksum on read error
         }
 
-        // 简单累加校验
+        // Accumulate checksum (simple byte addition)
         for (uint32_t i = 0; i < read_size; i++)
         {
             checksum += buffer[i];
@@ -185,12 +217,14 @@ uint32_t CheckSum(uint32_t StartAddress, uint32_t Size, uint32_t InitVal)
 }
 
 /**
-  * @brief  验证函数
-  * @param  MemoryAddr: 存储器地址
-  * @param  RAMBufferAddr: RAM缓冲区地址
-  * @param  Size: 数据大小
-  * @param  missalignement: 对齐方式
-  * @retval uint64_t: 验证结果，错误时返回错误地址
+  * @brief  Verify flash memory content against RAM buffer
+  * @param  MemoryAddr: Flash memory address to verify
+  * @param  RAMBufferAddr: RAM buffer address containing expected data
+  * @param  Size: Number of bytes to verify
+  * @param  missalignement: Memory alignment offset (typically 0)
+  * @retval On success: MemoryAddr + Size
+  *         On failure: Address of first mismatch
+  * @note   Return value should be used to detect verification errors
   */
 uint64_t Verify(uint32_t MemoryAddr, uint32_t RAMBufferAddr, uint32_t Size, uint32_t missalignement)
 {
@@ -198,21 +232,29 @@ uint64_t Verify(uint32_t MemoryAddr, uint32_t RAMBufferAddr, uint32_t Size, uint
     uint8_t read_buffer[256];
     uint8_t* ram_buffer = (uint8_t*)RAMBufferAddr;
     
-    while (verified_data < Size) {
+    (void)missalignement;  // Parameter not used in this implementation
+    
+    while (verified_data < Size)
+    {
         uint32_t read_size = (Size - verified_data > sizeof(read_buffer)) ? 
                              sizeof(read_buffer) : (Size - verified_data);
         
-        // 从Flash读取数据
-        if (Read(MemoryAddr + verified_data, read_size, read_buffer) != 1) {
-            return (MemoryAddr + verified_data) | 0x0100000000000000ULL;  // 错误标志
+        // Read data from flash
+        if (Read(MemoryAddr + verified_data, read_size, read_buffer) != LOADER_OK)
+        {
+            // Return error flag with current address
+            return (MemoryAddr + verified_data) | 0x0100000000000000ULL;
         }
         
-        // 比较数据
-        if (memcmp(read_buffer, ram_buffer + verified_data, read_size) != 0) {
-            // 找到第一个不匹配的字节
-            for (uint32_t i = 0; i < read_size; i++) {
-                if (read_buffer[i] != ram_buffer[verified_data + i]) {
-                    return MemoryAddr + verified_data + i;  // 返回错误地址
+        // Compare data byte by byte
+        if (memcmp(read_buffer, ram_buffer + verified_data, read_size) != 0)
+        {
+            // Find first mismatched byte
+            for (uint32_t i = 0; i < read_size; i++)
+            {
+                if (read_buffer[i] != ram_buffer[verified_data + i])
+                {
+                    return MemoryAddr + verified_data + i;  // Return address of mismatch
                 }
             }
         }
@@ -220,7 +262,7 @@ uint64_t Verify(uint32_t MemoryAddr, uint32_t RAMBufferAddr, uint32_t Size, uint
         verified_data += read_size;
     }
     
-    return MemoryAddr + Size;  // 验证成功，返回结束地址
+    return MemoryAddr + Size;  // Verification successful
 }
 
 /* USER CODE BEGIN 1 */
@@ -400,3 +442,5 @@ void assert_failed(uint8_t *file, uint32_t line)
     }
 }
 #endif /* USE_FULL_ASSERT */
+
+#endif /* FLASH_LOADER */

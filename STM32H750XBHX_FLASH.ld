@@ -32,97 +32,101 @@
 */
 
 /* Entry Point */
-ENTRY(Init)
+ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
-_estack = ORIGIN(RAM_D1) + LENGTH(RAM_D1);
+_estack = ORIGIN(DTCMRAM) + LENGTH(DTCMRAM);
 
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0x200;
 _Min_Stack_Size = 0x400;
 
-/* Specify the memory areas for STM32H750XBH6 */
+/* Specify the memory areas for STM32H750XBH6 - APP Configuration */
 MEMORY
 {
-  /* External Loader在RAM中执行 */
-  /* STM32H750XBH6的RAM布局: */
-  RAM_D1 (xrw)     : ORIGIN = 0x24000004, LENGTH = 512K - 4  /* AXI SRAM @ 0x24000000 */
-  RAM_D2 (xrw)     : ORIGIN = 0x30000000, LENGTH = 128K      /* SRAM1+SRAM2 @ 0x30000000 */
+  /* 外部QSPI Flash作为主程序存储区域 */
+  FLASH (rx)       : ORIGIN = 0x90000000, LENGTH = 32M       /* QSPI Flash映射地址 */
+  /* STM32H750XBH6的RAM布局 */
+  DTCMRAM (xrw)    : ORIGIN = 0x20000000, LENGTH = 128K      /* DTCM @ 0x20000000 */
+  RAM_D1 (xrw)     : ORIGIN = 0x24000000, LENGTH = 512K      /* AXI SRAM @ 0x24000000 */
+  RAM_D2 (xrw)     : ORIGIN = 0x30000000, LENGTH = 288K      /* SRAM1+SRAM2 @ 0x30000000 */
   RAM_D3 (xrw)     : ORIGIN = 0x38000000, LENGTH = 64K       /* SRAM4 @ 0x38000000 */
   ITCMRAM (xrw)    : ORIGIN = 0x00000000, LENGTH = 64K       /* ITCM @ 0x00000000 */
-  DTCMRAM (xrw)    : ORIGIN = 0x20000000, LENGTH = 128K      /* DTCM @ 0x20000000 */
 }
 
 /* Define output sections */
 SECTIONS
 {
-  /* 将所有代码和数据放在AXI SRAM (RAM_D1)中 */
+  /* The startup code goes first into FLASH */
+  .isr_vector :
+  {
+    . = ALIGN(4);
+    KEEP(*(.isr_vector)) /* Startup code */
+    . = ALIGN(4);
+  } >FLASH
+
+  /* The program code and other data goes into FLASH */
   .text :
   {
     . = ALIGN(4);
-    KEEP(*(.isr_vector))
-    *(.text)
-    *(.text*)
-    *(.glue_7)
-    *(.glue_7t)
+    *(.text)           /* .text sections (code) */
+    *(.text*)          /* .text* sections (code) */
+    *(.glue_7)         /* glue arm to thumb code */
+    *(.glue_7t)        /* glue thumb to arm code */
     *(.eh_frame)
-    
-    KEEP(*(.init))
-    KEEP(*(.fini))
-    
+
+    KEEP (*(.init))
+    KEEP (*(.fini))
+
     . = ALIGN(4);
-    _etext = .;
-  } >RAM_D1
-  
+    _etext = .;        /* define a global symbols at end of code */
+  } >FLASH
+
+  /* Constant data goes into FLASH */
   .rodata :
   {
     . = ALIGN(4);
-    *(.rodata)
-    *(.rodata*)
+    *(.rodata)         /* .rodata sections (constants, strings, etc.) */
+    *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
-  } >RAM_D1
-  
-  .data :
+  } >FLASH
+
+  .ARM.extab :
   {
-    . = ALIGN(4);
-    _sdata = .;
-    *(.data)
-    *(.data*)
-    . = ALIGN(4);
-    _edata = .;
-  } >RAM_D1
+    *(.ARM.extab* .gnu.linkonce.armextab.*)
+  } >FLASH
   
-  .bss :
+  .ARM :
   {
-    _sbss = .;
-    __bss_start__ = _sbss;
-    *(.bss)
-    *(.bss*)
-    *(COMMON)
-    . = ALIGN(4);
-    _ebss = .;
-    __bss_end__ = _ebss;
-  } >RAM_D1
-  
-  /* User_heap_stack section */
-  ._user_heap_stack :
+    __exidx_start = .;
+    *(.ARM.exidx*)
+    __exidx_end = .;
+  } >FLASH
+
+  .preinit_array :
   {
-    . = ALIGN(8);
-    PROVIDE(end = .);
-    PROVIDE(_end = .);
-    . = . + _Min_Heap_Size;
-    . = . + _Min_Stack_Size;
-    . = ALIGN(8);
-  } >RAM_D1
-  
-  /* Remove debug information */
-  /DISCARD/ :
+    PROVIDE_HIDDEN (__preinit_array_start = .);
+    KEEP (*(.preinit_array*))
+    PROVIDE_HIDDEN (__preinit_array_end = .);
+  } >FLASH
+
+  .init_array :
   {
-    libc.a(*)
-    libm.a(*)
-    libgcc.a(*)
-  }
-}
+    PROVIDE_HIDDEN (__init_array_start = .);
+    KEEP (*(SORT(.init_array.*)))
+    KEEP (*(.init_array*))
+    PROVIDE_HIDDEN (__init_array_end = .);
+  } >FLASH
+
+  .fini_array :
+  {
+    PROVIDE_HIDDEN (__fini_array_start = .);
+    KEEP (*(SORT(.fini_array.*)))
+    KEEP (*(.fini_array*))
+    PROVIDE_HIDDEN (__fini_array_end = .);
+  } >FLASH
+
+  /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
   /* Initialized data sections goes into RAM, load LMA copy after code */

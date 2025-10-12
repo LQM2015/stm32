@@ -1,5 +1,8 @@
 #include "Dev_Inf.h"
 
+/* This file is only compiled for Flash Loader configuration */
+#ifdef FLASH_LOADER
+
 // 设备信息结构体 - 适配STM32H750XBH6 + W25Q256
 // IMPORTANT: This structure MUST be placed in .dev_info section for STM32CubeProgrammer
 #if defined (__ICCARM__)
@@ -33,3 +36,5 @@ struct StorageInfo const StorageInfo = {
         {0x00000000, 0x00000000}
     }
 };
+
+#endif /* FLASH_LOADER */
