@@ -148,11 +148,20 @@ int main(void)
   
   /* USER CODE END 1 */
 
+  /* CRITICAL: Since we're running from external Flash (QSPI), 
+   * we must handle Cache carefully to avoid system hang.
+   * The bootloader has already enabled cache and QSPI memory-mapped mode.
+   * We need to clean cache before reconfiguration. */
+  
+  /* Clean and Invalidate caches before reconfiguration */
+  SCB_CleanInvalidateDCache();
+  SCB_InvalidateICache();
+  
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
 
-  /* Enable the CPU Cache */
-
+  /* Re-enable the CPU Cache after MPU configuration */
+  
   /* Enable I-Cache---------------------------------------------------------*/
   SCB_EnableICache();
 
@@ -177,14 +186,31 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  DEBUG_INFO("GPIO initialized");
+  
   MX_MDMA_Init();
+  DEBUG_INFO("MDMA initialized");
+  
   MX_DMA_Init();
+  DEBUG_INFO("DMA initialized");
+  
   MX_USART1_UART_Init();
   DEBUG_INFO("USART1 initialized");
+  
+  /* CRITICAL: Temporarily disable interrupts during FMC init
+   * to prevent any interrupt issues while running from external Flash */
+  __disable_irq();
+  
   MX_FMC_Init();
   DEBUG_INFO("FMC initialized");
+  
+  /* Re-enable interrupts after FMC initialization */
+  __enable_irq();
+  DEBUG_INFO("Interrupts re-enabled");
+  
   MX_SDMMC1_SD_Init();
   DEBUG_INFO("SDMMC1 initialized");
+  
   MX_FATFS_Init();
   DEBUG_INFO("FATFS initialized");
   /* USER CODE BEGIN 2 */

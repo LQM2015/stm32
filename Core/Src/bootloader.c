@@ -102,9 +102,14 @@ void Bootloader_DeInit(void)
         NVIC->ICPR[i] = 0xFFFFFFFF;  /* Clear all pending interrupts */
     }
     
-    /* Disable I-Cache and D-Cache */
-    SCB_DisableICache();
-    SCB_DisableDCache();
+    /* IMPORTANT: Do NOT disable cache here! 
+     * The application code is running from external Flash (0x90000000)
+     * which requires cache to be enabled for proper execution.
+     * Cache will be cleaned and invalidated, then re-enabled by the application.
+     */
+    
+    /* Clean D-Cache to ensure all data is written to memory */
+    SCB_CleanDCache();
     
     /* Relocate vector table to external Flash */
     SCB->VTOR = APP_ADDRESS;
