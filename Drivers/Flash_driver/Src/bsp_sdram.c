@@ -70,12 +70,20 @@ BSP_SDRAM_StatusTypeDef BSP_SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef *h
     }
     DEBUG_INFO("SDRAM auto-refresh completed (8 cycles)");
 
-    /* Step 4: 配置模式寄存器 */
-    tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_1          |
+    /* Step 4: 配置模式寄存器 
+     * 性能优化配置:
+     * - Burst Length = 1 + Full Page Burst (通过 FMC ReadBurst 控制)
+     * - Write Burst = Programmed (启用写入 Burst 模式)
+     * - CAS Latency = 3 (匹配 FMC 配置)
+     * 
+     * 说明: STM32 FMC 已经配置了 ReadBurst Enable,
+     *       SDRAM Mode Register 使用 Burst=1 配合 FMC 的 Burst 控制更稳定
+     */
+    tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_1          |  // Burst=1 (由FMC控制)
                        SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL   |
                        SDRAM_MODEREG_CAS_LATENCY_3           |
                        SDRAM_MODEREG_OPERATING_MODE_STANDARD |
-                       SDRAM_MODEREG_WRITEBURST_MODE_SINGLE;
+                       SDRAM_MODEREG_WRITEBURST_MODE_PROGRAMMED; // ✅ 启用写入Burst
 
     Command.CommandMode             = FMC_SDRAM_CMD_LOAD_MODE;     // 加载模式寄存器命令
     Command.CommandTarget           = FMC_COMMAND_TARGET_BANK;     // 选择要控制的区域
@@ -253,6 +261,13 @@ void BSP_SDRAM_Performance_Test(void)
     DEBUG_INFO("========================================");
     DEBUG_INFO("  SDRAM Performance Benchmark");
     DEBUG_INFO("========================================");
+    
+    // 确保 D-Cache 已清空和无效化
+    SCB_CleanInvalidateDCache();
+    
+    // 预热 Cache (触发 Cache line 填充)
+    volatile uint32_t dummy = *(volatile uint32_t*)SDRAM_BANK_ADDR;
+    (void)dummy;
     
     // 32位写入测试
     pSDRAM32 = (uint32_t *)SDRAM_BANK_ADDR;

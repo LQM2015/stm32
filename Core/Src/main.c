@@ -400,14 +400,20 @@ void MPU_Config(void)
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
   /** Initializes and configures the Region and the memory to be protected
-  */
+   *  Region 4: SDRAM (0xC0000000 - 0xC1FFFFFF, 32MB) - IS42S32800J
+   *  配置为 Write-Back Cacheable 以获得最佳性能
+   *  注意: Write-Back 模式需要在 DMA 访问前后手动管理 Cache 一致性
+   */
   MPU_InitStruct.Number = MPU_REGION_NUMBER4;
   MPU_InitStruct.BaseAddress = 0xC0000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;               // TEX=1 用于 Write-Back
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE; // SDRAM不执行代码
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;           // C=1 启用Cache
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;         // B=1 Write-Back模式
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enables the MPU */
