@@ -38,6 +38,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bsp_sdram.h"
 #endif  /* !BOOTLOADER */
 /* USER CODE END Includes */
 
@@ -223,6 +224,37 @@ int main(void)
   /* 运行调试测试 */
   debug_test();
   
+  /* ========================================
+   * SDRAM 初始化和测试
+   * ======================================== */
+  DEBUG_INFO("");
+  DEBUG_INFO("========================================");
+  DEBUG_INFO("  Initializing External SDRAM");
+  DEBUG_INFO("========================================");
+  
+  // 初始化SDRAM时序和控制方式
+  if (BSP_SDRAM_Initialization_Sequence(&hsdram1) == SDRAM_OK) {
+    DEBUG_INFO("SDRAM initialization completed!");
+    DEBUG_INFO("SDRAM Base Address: 0x%08X", SDRAM_BANK_ADDR);
+    DEBUG_INFO("SDRAM Size: %d MB", SDRAM_SIZE / 1024 / 1024);
+    
+    // 运行SDRAM读写测试
+    DEBUG_INFO("");
+    if (BSP_SDRAM_Test() == SDRAM_OK) {
+      DEBUG_INFO("SDRAM is ready for use!");
+      
+      // 运行性能测试（可选）
+      DEBUG_INFO("");
+      BSP_SDRAM_Performance_Test();
+    } else {
+      DEBUG_ERROR("SDRAM test failed!");
+    }
+  } else {
+    DEBUG_ERROR("SDRAM initialization failed!");
+  }
+  
+  DEBUG_INFO("");
+  
   DEBUG_INFO("UART1 initialized at 115200 baud");
   DEBUG_INFO("QUADSPI initialized");
   DEBUG_INFO("DMA and MDMA initialized");
@@ -375,6 +407,25 @@ void MPU_Config(void)
   MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Initializes and configures the Region and the memory to be protected
+   *  Region 4: SDRAM (0xC0000000 - 0xC1FFFFFF, 32MB) - IS42S32800J: 256Mbit
+   *  注意：为了获得最佳性能测试结果，禁用Cache
+   *       实际应用中可以启用Cache以提高性能，但需要注意Cache一致性
+   */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER4;
+  MPU_InitStruct.BaseAddress = 0xC0000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;  // 禁用Cache以获得真实SDRAM速度
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
