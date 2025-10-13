@@ -258,7 +258,7 @@ void BSP_SDRAM_Performance_Test(void)
     pSDRAM32 = (uint32_t *)SDRAM_BANK_ADDR;
     time_start = HAL_GetTick();
     for (i = 0; i < SDRAM_SIZE/4; i++) {
-        *pSDRAM32++ = 0xAAAAAAAA;
+        *(__IO uint32_t*)pSDRAM32++ = 0xAAAAAAAA;  // 使用__IO防止编译器优化
     }
     time_end = HAL_GetTick();
     time_diff = time_end - time_start;
@@ -275,7 +275,7 @@ void BSP_SDRAM_Performance_Test(void)
     pSDRAM32 = (uint32_t *)SDRAM_BANK_ADDR;
     time_start = HAL_GetTick();
     for (i = 0; i < SDRAM_SIZE/4; i++) {
-        data32 = *pSDRAM32++;
+        data32 = *(__IO uint32_t*)pSDRAM32++;  // 使用__IO防止编译器优化
     }
     (void)data32;  // 防止编译器警告
     time_end = HAL_GetTick();
@@ -291,7 +291,7 @@ void BSP_SDRAM_Performance_Test(void)
     pSDRAM16 = (uint16_t *)SDRAM_BANK_ADDR;
     time_start = HAL_GetTick();
     for (i = 0; i < SDRAM_SIZE/2; i++) {
-        *pSDRAM16++ = 0xAAAA;
+        *(__IO uint16_t*)pSDRAM16++ = 0xAAAA;  // 使用__IO防止编译器优化
     }
     time_end = HAL_GetTick();
     time_diff = time_end - time_start;
@@ -306,7 +306,7 @@ void BSP_SDRAM_Performance_Test(void)
     pSDRAM16 = (uint16_t *)SDRAM_BANK_ADDR;
     time_start = HAL_GetTick();
     for (i = 0; i < SDRAM_SIZE/2; i++) {
-        data16 = *pSDRAM16++;
+        data16 = *(__IO uint16_t*)pSDRAM16++;  // 使用__IO防止编译器优化
     }
     (void)data16;  // 防止编译器警告
     time_end = HAL_GetTick();
@@ -322,7 +322,7 @@ void BSP_SDRAM_Performance_Test(void)
     pSDRAM8 = (uint8_t *)SDRAM_BANK_ADDR;
     time_start = HAL_GetTick();
     for (i = 0; i < SDRAM_SIZE; i++) {
-        *pSDRAM8++ = 0xAA;
+        *(__IO uint8_t*)pSDRAM8++ = 0xAA;  // 使用__IO防止编译器优化
     }
     time_end = HAL_GetTick();
     time_diff = time_end - time_start;
@@ -337,7 +337,7 @@ void BSP_SDRAM_Performance_Test(void)
     pSDRAM8 = (uint8_t *)SDRAM_BANK_ADDR;
     time_start = HAL_GetTick();
     for (i = 0; i < SDRAM_SIZE; i++) {
-        data8 = *pSDRAM8++;
+        data8 = *(__IO uint8_t*)pSDRAM8++;  // 使用__IO防止编译器优化
     }
     (void)data8;  // 防止编译器警告
     time_end = HAL_GetTick();

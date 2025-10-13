@@ -146,9 +146,6 @@ int main(void)
   }
 #else
   /* Normal application mode */
-  
-  /* USER CODE END 1 */
-
   /* CRITICAL: Since we're running from external Flash (QSPI), 
    * we must handle Cache carefully to avoid system hang.
    * The bootloader has already enabled cache and QSPI memory-mapped mode.
@@ -156,13 +153,16 @@ int main(void)
   
   /* Clean and Invalidate caches before reconfiguration */
   SCB_CleanInvalidateDCache();
-  SCB_InvalidateICache();
+  SCB_InvalidateICache();  
+  /* USER CODE END 1 */
+
+
   
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
 
-  /* Re-enable the CPU Cache after MPU configuration */
-  
+  /* Enable the CPU Cache */
+
   /* Enable I-Cache---------------------------------------------------------*/
   SCB_EnableICache();
 
@@ -187,14 +187,8 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  DEBUG_INFO("GPIO initialized");
-  
   MX_MDMA_Init();
-  DEBUG_INFO("MDMA initialized");
-  
   MX_DMA_Init();
-  DEBUG_INFO("DMA initialized");
-  
   MX_USART1_UART_Init();
   DEBUG_INFO("USART1 initialized");
   
@@ -210,10 +204,7 @@ int main(void)
   DEBUG_INFO("Interrupts re-enabled");
   
   MX_SDMMC1_SD_Init();
-  DEBUG_INFO("SDMMC1 initialized");
-  
   MX_FATFS_Init();
-  DEBUG_INFO("FATFS initialized");
   /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
   DEBUG_INFO("=== APP SUCCESSFULLY STARTED ===");
@@ -409,23 +400,16 @@ void MPU_Config(void)
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
   /** Initializes and configures the Region and the memory to be protected
-   *  Region 4: SDRAM (0xC0000000 - 0xC1FFFFFF, 32MB) - IS42S32800J: 256Mbit
-   *  注意：为了获得最佳性能测试结果，禁用Cache
-   *       实际应用中可以启用Cache以提高性能，但需要注意Cache一致性
-   */
+  */
   MPU_InitStruct.Number = MPU_REGION_NUMBER4;
   MPU_InitStruct.BaseAddress = 0xC0000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;
-  MPU_InitStruct.SubRegionDisable = 0x0;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;  // 禁用Cache以获得真实SDRAM速度
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
-  
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
@@ -482,9 +466,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-
-#if defined(USE_FULL_ASSERT)
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
