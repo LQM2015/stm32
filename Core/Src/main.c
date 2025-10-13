@@ -15,29 +15,30 @@
   *
   ******************************************************************************
   */
-/* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
-#include "main.h"
-
 #if defined(BOOTLOADER)
 /* Bootloader mode - only essential includes */
 #include "quadspi.h"
 #include "usart.h"
 #include "gpio.h"
 #include "bootloader.h"
-#elif !defined(FLASH_LOADER)
-/* Normal application mode */
+#else
+
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
 #include "cmsis_os.h"
 #include "dma.h"
+#include "fatfs.h"
 #include "mdma.h"
 #include "quadspi.h"
+#include "sdmmc.h"
 #include "usart.h"
 #include "gpio.h"
-#endif
+#include "fmc.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#endif  /* !BOOTLOADER */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,7 +64,9 @@
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+#if !defined(BOOTLOADER)
 static void MPU_Config(void);
+#endif
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -80,6 +83,8 @@ void MX_FREERTOS_Init(void);
   */
 int main(void)
 {
+
+  /* USER CODE BEGIN 1 */
 #ifdef BOOTLOADER
   /* Bootloader mode - Initialize and jump to external Flash application */
   
@@ -138,31 +143,8 @@ int main(void)
   while(1) {
     HAL_Delay(1000);
   }
-  
-#elif defined(FLASH_LOADER)
-  /* Flash Loader mode - minimal initialization */
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
-  
-  /* Configure the system clock */
-  SystemClock_Config();
-  
-  /* Flash Loader runs its own functions, main() should not execute normal app code */
-  while(1)
-  {
-    /* Flash Loader functions are called by STM32CubeProgrammer */
-    /* This loop should never be reached in normal operation */
-  }
 #else
   /* Normal application mode */
-
-  /* USER CODE BEGIN 1 */
-  /* 极早期调试输出 - 使用直接寄存器操作,不依赖 HAL */
-  /* UART1 已经被 bootloader 初始化,可以直接使用 */
-  /* 这样即使后续初始化失败也能看到输出 */
-  
-  /* APP 启动标记 - 使用 DEBUG 宏(需要 UART 工作) */
-  /* 但 UART 应该已经被 bootloader 初始化过了 */
   
   /* USER CODE END 1 */
 
@@ -198,6 +180,13 @@ int main(void)
   MX_MDMA_Init();
   MX_DMA_Init();
   MX_USART1_UART_Init();
+  DEBUG_INFO("USART1 initialized");
+  MX_FMC_Init();
+  DEBUG_INFO("FMC initialized");
+  MX_SDMMC1_SD_Init();
+  DEBUG_INFO("SDMMC1 initialized");
+  MX_FATFS_Init();
+  DEBUG_INFO("FATFS initialized");
   /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
   DEBUG_INFO("=== APP SUCCESSFULLY STARTED ===");
@@ -235,8 +224,8 @@ int main(void)
     DEBUG_ERROR("ERROR: Unexpected return from FreeRTOS scheduler!");
     HAL_Delay(1000);
   }
-  /* USER CODE END 3 */
 #endif /* Normal application mode */
+  /* USER CODE END 3 */
 }
 
 /**
@@ -254,7 +243,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
@@ -267,9 +256,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 60;
+  RCC_OscInitStruct.PLL.PLLN = 50;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
@@ -292,108 +281,77 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
 }
 
 /* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
 #if !defined(BOOTLOADER)
 /**
  * @brief  配置 MPU (Memory Protection Unit)
  * @note   为不同内存区域设置合适的访问权限和缓存策略
  *         提高系统安全性和性能
  */
-static void MPU_Config(void)
+/* USER CODE END 4 */
+
+ /* MPU Configuration */
+
+void MPU_Config(void)
 {
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
-  /* 禁用 MPU */
+  /* Disables the MPU */
   HAL_MPU_Disable();
 
-  /* ========== Region 0: 外部 QSPI Flash (APP 代码) ========== */
-  /* 地址: 0x90000000 - 0x91FFFFFF (32MB)
-   * 用途: 存储和执行 APP 代码
-   * 配置: 可读可执行,启用缓存以提高性能
-   */
+  /** Initializes and configures the Region and the memory to be protected
+  */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-  MPU_InitStruct.BaseAddress = 0x90000000;          // 外部 Flash 起始地址
-  MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;       // 32MB W25Q256
-  MPU_InitStruct.SubRegionDisable = 0x00;           // 启用所有子区域
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;     // Normal memory
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;        // 可读可写
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;      // 允许执行代码!
-  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;               // 启用缓存(重要!)
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-  
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
-
-  /* ========== Region 1: DTCM RAM (堆栈) ========== */
-  /* 地址: 0x20000000 - 0x2001FFFF (128KB)
-   * 用途: 主堆栈,快速访问的变量
-   * 配置: 可读可写可执行,启用缓存
-   */
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
-  MPU_InitStruct.BaseAddress = 0x20000000;          // DTCM RAM
-  MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
-  MPU_InitStruct.SubRegionDisable = 0x00;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;      // 允许从 RAM 执行
-  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
-  
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
-
-  /* ========== Region 2: AXI SRAM (D1 域 - 主 RAM) ========== */
-  /* 地址: 0x24000000 - 0x2407FFFF (512KB)
-   * 用途: 主要的数据存储区域,DMA 缓冲区
-   * 配置: 可读可写可执行,启用缓存
-   */
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-  MPU_InitStruct.Number = MPU_REGION_NUMBER2;
-  MPU_InitStruct.BaseAddress = 0x24000000;          // AXI SRAM
-  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
-  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.BaseAddress = 0x90000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
   MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
-  
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
-  /* ========== Region 3: 外设区域 ========== */
-  /* 地址: 0x40000000 - 0x5FFFFFFF (512MB)
-   * 用途: 所有外设寄存器 (UART, GPIO, QSPI, DMA 等)
-   * 配置: 可读可写,不可执行,不可缓存
-   * 注意: 外设寄存器必须不可缓存!否则会读到旧值
-   */
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+  MPU_InitStruct.BaseAddress = 0x20000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER2;
+  MPU_InitStruct.BaseAddress = 0x24000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
   MPU_InitStruct.Number = MPU_REGION_NUMBER3;
-  MPU_InitStruct.BaseAddress = 0x40000000;          // 外设基地址
+  MPU_InitStruct.BaseAddress = 0x40000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_512MB;
-  MPU_InitStruct.SubRegionDisable = 0x00;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;     // Device memory
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;     // 外设不可执行
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;           // 外设不可缓存!
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
-  
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
 
-  /* 启用 MPU,特权模式下使用默认内存映射 */
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+
 }
 #endif /* !BOOTLOADER */
 
@@ -448,8 +406,8 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-/* Note: assert_failed is defined in Loader_Src.c for FLASH_LOADER configuration */
-#if defined(USE_FULL_ASSERT) && !defined(FLASH_LOADER)
+
+#if defined(USE_FULL_ASSERT)
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
@@ -481,4 +439,4 @@ void assert_failed(uint8_t *file, uint32_t line)
 #endif
   /* USER CODE END 6 */
 }
-#endif /* USE_FULL_ASSERT && !FLASH_LOADER */
+#endif /* USE_FULL_ASSERT */

@@ -51,7 +51,7 @@
 /* #define HAL_NOR_MODULE_ENABLED   */
 /* #define HAL_OTFDEC_MODULE_ENABLED   */
 /* #define HAL_SRAM_MODULE_ENABLED   */
-/* #define HAL_SDRAM_MODULE_ENABLED   */
+#define HAL_SDRAM_MODULE_ENABLED
 /* #define HAL_HASH_MODULE_ENABLED   */
 /* #define HAL_HRTIM_MODULE_ENABLED   */
 /* #define HAL_HSEM_MODULE_ENABLED   */
@@ -69,7 +69,7 @@
 /* #define HAL_RNG_MODULE_ENABLED   */
 /* #define HAL_RTC_MODULE_ENABLED   */
 /* #define HAL_SAI_MODULE_ENABLED   */
-/* #define HAL_SD_MODULE_ENABLED   */
+#define HAL_SD_MODULE_ENABLED
 /* #define HAL_MMC_MODULE_ENABLED   */
 /* #define HAL_SPDIFRX_MODULE_ENABLED   */
 /* #define HAL_SPI_MODULE_ENABLED   */
@@ -494,7 +494,7 @@
 /**
   * @brief  Vector Table Relocation for different build configurations
   */
-#if !defined(FLASH_LOADER) && !defined(BOOTLOADER)
+#if !defined(BOOTLOADER)
   /* APP mode: Running from external Flash */
   #define USER_VECT_TAB_ADDRESS
   #define VECT_TAB_BASE_ADDRESS    0x90000000UL  /* External QSPI Flash base address */

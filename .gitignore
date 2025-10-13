@@ -4,3 +4,4 @@ FlashLoader_Debug
 BOOT_STM32H750
 Bootloader_Debug
 App_Debug
+example
