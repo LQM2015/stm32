@@ -51,7 +51,7 @@
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 1024 * 4,
+  .stack_size = 1024 * 8,  // ✅ 增加到8KB，避免栈溢出
   .priority = (osPriority_t) osPriorityNormal,
 };
 
@@ -231,7 +231,6 @@ void StartDefaultTask(void *argument)
   
   /* 检查任务堆栈大小 */
   UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-  DEBUG_INFO("Task Stack Size: %d bytes", 1024 * 16);
   DEBUG_INFO("Stack High Water Mark: %d bytes (unused)", stackHighWaterMark * 4);
   
   /* 延时一下，确保系统完全初始化 */
@@ -239,22 +238,6 @@ void StartDefaultTask(void *argument)
 
   DEBUG_INFO("=== System Initialization Complete ===");
   
-  /* 先测试printf浮点是否正常工作 */
-  DEBUG_INFO("");
-  DEBUG_INFO("========================================");
-  DEBUG_INFO("  Testing printf Float Support");
-  DEBUG_INFO("========================================");
-  
-  float test_value = 3.14159f;
-
-  osDelay(10);  // 短暂延时确保之前的输出完成
-  
-  printf("Test printf with float: %.3f\r\n", test_value);
-  
-  osDelay(10);  // 延时确保printf完成
-  stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-  DEBUG_INFO("After printf test - Stack remaining: %d bytes", stackHighWaterMark * 4);
-  DEBUG_INFO("Printf float test passed!");
   
   /* 在FreeRTOS任务中运行SDRAM性能测试（有足够的任务堆栈） */
   DEBUG_INFO("");
@@ -262,18 +245,10 @@ void StartDefaultTask(void *argument)
   DEBUG_INFO("  Running SDRAM Performance Test");
   DEBUG_INFO("========================================");
   
-  /* 测试前检查堆栈 */
-  stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-  DEBUG_INFO("Before test - Stack remaining: %d bytes", stackHighWaterMark * 4);
   
   extern void BSP_SDRAM_Performance_Test(void);
   BSP_SDRAM_Performance_Test();
   
-  /* 测试后检查堆栈 */
-  stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-  DEBUG_INFO("After test - Stack remaining: %d bytes", stackHighWaterMark * 4);
-  DEBUG_INFO("SDRAM Performance Test completed!");
-  DEBUG_INFO("");
   
   /* Infinite loop */
   uint32_t loop_count = 0;

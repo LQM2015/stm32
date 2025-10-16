@@ -85,6 +85,31 @@ BSP_SDRAM_StatusTypeDef BSP_SDRAM_WriteData(uint32_t address, uint8_t *pData, ui
  */
 BSP_SDRAM_StatusTypeDef BSP_SDRAM_ReadData(uint32_t address, uint8_t *pData, uint32_t size);
 
+/**
+ * @brief  使用DMA写入数据到SDRAM（高速传输）
+ * @param  address: 写入地址（相对于SDRAM起始地址的偏移）
+ * @param  pData: 数据指针
+ * @param  size: 数据大小（字节）
+ * @retval BSP_SDRAM_StatusTypeDef状态
+ */
+BSP_SDRAM_StatusTypeDef BSP_SDRAM_WriteData_DMA(uint32_t address, uint8_t *pData, uint32_t size);
+
+/**
+ * @brief  使用DMA从SDRAM读取数据（高速传输）
+ * @param  address: 读取地址（相对于SDRAM起始地址的偏移）
+ * @param  pData: 数据指针
+ * @param  size: 数据大小（字节）
+ * @retval BSP_SDRAM_StatusTypeDef状态
+ */
+BSP_SDRAM_StatusTypeDef BSP_SDRAM_ReadData_DMA(uint32_t address, uint8_t *pData, uint32_t size);
+
+/**
+ * @brief  SDRAM DMA传输完成回调函数
+ * @param  None
+ * @retval None
+ */
+void BSP_SDRAM_DMA_TransferCompleteCallback(void);
+
 #ifdef __cplusplus
 }
 #endif
