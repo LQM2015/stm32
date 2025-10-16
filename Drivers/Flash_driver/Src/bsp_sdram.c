@@ -248,135 +248,91 @@ BSP_SDRAM_StatusTypeDef BSP_SDRAM_Test(void)
  */
 void BSP_SDRAM_Performance_Test(void)
 {
-    uint32_t i;
-    uint32_t *pSDRAM32;
-    uint16_t *pSDRAM16;
-    uint8_t  *pSDRAM8;
-    volatile uint32_t data32;
-    volatile uint16_t data16;
-    volatile uint8_t  data8;
-    
-    uint32_t time_start, time_end, time_diff;
-    uint32_t speed_mbps;
-    
-    DEBUG_INFO("========================================");
-    DEBUG_INFO("  SDRAM Performance Benchmark (Optimized)");
-    DEBUG_INFO("  System Clock: 480MHz, HCLK: 240MHz");
-    DEBUG_INFO("  FMC Clock: 240MHz, Compiler: -O3");
-    DEBUG_INFO("========================================");
-    
-    // ⚡ 性能优化：不需要清除Cache，让Write-Back Cache发挥最大性能
-    // 注意：如果测试后数据需要被DMA访问，才需要Clean Cache
-    
-    // 预热 Cache (触发 Cache line 填充) - 可选步骤
-    volatile uint32_t dummy = *(volatile uint32_t*)SDRAM_BANK_ADDR;
-    (void)dummy;
-    
-    // 32位写入测试
-    pSDRAM32 = (uint32_t *)SDRAM_BANK_ADDR;
-    time_start = HAL_GetTick();
-    for (i = 0; i < SDRAM_SIZE/4; i++) {
-        *(__IO uint32_t*)pSDRAM32++ = 0xAAAAAAAA;  // 使用__IO防止编译器优化
-    }
-    
-    time_end = HAL_GetTick();
-    time_diff = time_end - time_start;
-    if (time_diff > 0) {
-        // HAL_GetTick()返回毫秒
-        // 速率(MB/s) = 数据量(MB) * 1000 / 时间(毫秒)
-        speed_mbps = (SDRAM_SIZE / 1024 / 1024) * 1000 / time_diff;
-        DEBUG_INFO("32-bit Write: %lu MB/s (with Cache & -O3)", speed_mbps);
-    } else {
-        DEBUG_INFO("32-bit Write: >32000 MB/s");
-    }
-    
-    // 32位读取测试
-    pSDRAM32 = (uint32_t *)SDRAM_BANK_ADDR;
-    time_start = HAL_GetTick();
-    for (i = 0; i < SDRAM_SIZE/4; i++) {
-        data32 = *(__IO uint32_t*)pSDRAM32++;  // 使用__IO防止编译器优化
-    }
-    (void)data32;  // 防止编译器警告
-    
-    time_end = HAL_GetTick();
-    time_diff = time_end - time_start;
-    if (time_diff > 0) {
-        speed_mbps = (SDRAM_SIZE / 1024 / 1024) * 1000 / time_diff;
-        DEBUG_INFO("32-bit Read:  %lu MB/s", speed_mbps);
-    } else {
-        DEBUG_INFO("32-bit Read:  >32000 MB/s");
-    }
-    
-    // 16位写入测试
-    pSDRAM16 = (uint16_t *)SDRAM_BANK_ADDR;
-    time_start = HAL_GetTick();
-    for (i = 0; i < SDRAM_SIZE/2; i++) {
-        *(__IO uint16_t*)pSDRAM16++ = 0xAAAA;  // 使用__IO防止编译器优化
-    }
-    time_end = HAL_GetTick();
-    time_diff = time_end - time_start;
-    if (time_diff > 0) {
-        speed_mbps = (SDRAM_SIZE / 1024 / 1024) * 1000 / time_diff;
-        DEBUG_INFO("16-bit Write: %lu MB/s", speed_mbps);
-    } else {
-        DEBUG_INFO("16-bit Write: >32000 MB/s");
-    }
-    
-    // 16位读取测试
-    pSDRAM16 = (uint16_t *)SDRAM_BANK_ADDR;
-    time_start = HAL_GetTick();
-    for (i = 0; i < SDRAM_SIZE/2; i++) {
-        data16 = *(__IO uint16_t*)pSDRAM16++;  // 使用__IO防止编译器优化
-    }
-    (void)data16;  // 防止编译器警告
-    time_end = HAL_GetTick();
-    time_diff = time_end - time_start;
-    if (time_diff > 0) {
-        speed_mbps = (SDRAM_SIZE / 1024 / 1024) * 1000 / time_diff;
-        DEBUG_INFO("16-bit Read:  %lu MB/s", speed_mbps);
-    } else {
-        DEBUG_INFO("16-bit Read:  >32000 MB/s");
-    }
-    
-    // 8位写入测试
-    pSDRAM8 = (uint8_t *)SDRAM_BANK_ADDR;
-    time_start = HAL_GetTick();
-    for (i = 0; i < SDRAM_SIZE; i++) {
-        *(__IO uint8_t*)pSDRAM8++ = 0xAA;  // 使用__IO防止编译器优化
-    }
-    time_end = HAL_GetTick();
-    time_diff = time_end - time_start;
-    if (time_diff > 0) {
-        speed_mbps = (SDRAM_SIZE / 1024 / 1024) * 1000 / time_diff;
-        DEBUG_INFO("8-bit Write:  %lu MB/s", speed_mbps);
-    } else {
-        DEBUG_INFO("8-bit Write:  >32000 MB/s");
-    }
-    
-    // 8位读取测试
-    pSDRAM8 = (uint8_t *)SDRAM_BANK_ADDR;
-    time_start = HAL_GetTick();
-    for (i = 0; i < SDRAM_SIZE; i++) {
-        data8 = *(__IO uint8_t*)pSDRAM8++;  // 使用__IO防止编译器优化
-    }
-    (void)data8;  // 防止编译器警告
-    time_end = HAL_GetTick();
-    time_diff = time_end - time_start;
-    if (time_diff > 0) {
-        speed_mbps = (SDRAM_SIZE / 1024 / 1024) * 1000 / time_diff;
-        DEBUG_INFO("8-bit Read:   %lu MB/s", speed_mbps);
-    } else {
-        DEBUG_INFO("8-bit Read:   >32000 MB/s");
-    }
-    
-    DEBUG_INFO("========================================");
-    DEBUG_INFO("  Benchmark Completed");
-    DEBUG_INFO("  Note: Performance boosted by:");
-    DEBUG_INFO("  - System Clock: 480MHz (VOS0)");
-    DEBUG_INFO("  - Compiler Optimization: -O3");
-    DEBUG_INFO("  - Cache: Write-Back enabled");
-    DEBUG_INFO("  - Loop Unrolling optimization");
-    DEBUG_INFO("========================================");
+	uint32_t i = 0;			// 计数变量
+	uint32_t *pSDRAM;
+	uint32_t ReadData = 0; 	// 读取到的数据
+	uint8_t  ReadData_8b;
+
+	uint32_t ExecutionTime_Begin;		// 开始时间
+	uint32_t ExecutionTime_End;		// 结束时间
+	uint32_t ExecutionTime;				// 执行时间	
+	float    ExecutionSpeed;			// 执行速度
+	
+	DEBUG_INFO("\r\n*****************************************************************************************************\r\n");		
+	DEBUG_INFO("\r\n进行速度测试>>>\r\n");
+
+// 写入 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+	
+	pSDRAM =  (uint32_t *)SDRAM_BANK_ADDR;
+	
+	ExecutionTime_Begin 	= HAL_GetTick();	// 获取 systick 当前时间，单位ms
+	
+	for (i = 0; i < SDRAM_SIZE/4; i++)
+	{
+ 		*(__IO uint32_t*)pSDRAM++ = i;		// 写入数据
+	}
+
+	
+	ExecutionTime_End		= HAL_GetTick();											// 获取 systick 当前时间，单位ms
+	ExecutionTime  = ExecutionTime_End - ExecutionTime_Begin; 				// 计算擦除时间，单位ms
+	ExecutionSpeed = (float)SDRAM_SIZE /1024/1024 /ExecutionTime*1000 ; 	// 计算速度，单位 MB/S	
+	
+	printf("\r\n以32位数据宽度写入数据，大小：%d MB，耗时: %d ms, 写入速度：%.2f MB/s\r\n",SDRAM_SIZE/1024/1024,ExecutionTime,ExecutionSpeed);
+
+// 读取	>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 
+
+	pSDRAM =  (uint32_t *)SDRAM_BANK_ADDR;
+		
+	ExecutionTime_Begin 	= HAL_GetTick();	// 获取 systick 当前时间，单位ms
+	
+	for(i = 0; i < SDRAM_SIZE/4;i++ )
+	{
+		ReadData = *(__IO uint32_t*)pSDRAM++;  // 从SDRAM读出数据	
+	}
+	ExecutionTime_End		= HAL_GetTick();											// 获取 systick 当前时间，单位ms
+	ExecutionTime  = ExecutionTime_End - ExecutionTime_Begin; 				// 计算擦除时间，单位ms
+	ExecutionSpeed = (float)SDRAM_SIZE /1024/1024 /ExecutionTime*1000 ; 	// 计算速度，单位 MB/S	
+	
+	printf("\r\n读取数据完毕，大小：%d MB，耗时: %d ms, 读取速度：%.2f MB/s\r\n",SDRAM_SIZE/1024/1024,ExecutionTime,ExecutionSpeed);
+	
+//// 数据校验 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>   
+
+	printf("\r\n*****************************************************************************************************\r\n");		
+	printf("\r\n进行数据校验>>>\r\n");
+	
+	pSDRAM =  (uint32_t *)SDRAM_BANK_ADDR;
+		
+	for(i = 0; i < SDRAM_SIZE/4;i++ )
+	{
+		ReadData = *(__IO uint32_t*)pSDRAM++;  // 从SDRAM读出数据	
+		if( ReadData != (uint32_t)i )      //检测数据，若不相等，跳出函数,返回检测失败结果。
+		{
+			DEBUG_ERROR("\r\nSDRAM测试失败！！出错位置：%d,读出数据：%d\r\n ",i,ReadData);
+			return SDRAM_ERROR;	 // 返回失败标志
+		}
+	}
+
+
+	printf("\r\n32位数据宽度读写通过，以8位数据宽度写入数据\r\n");
+	for (i = 0; i < SDRAM_SIZE; i++)
+	{
+ 		*(__IO uint8_t*) (SDRAM_BANK_ADDR + i) =  (uint8_t)i;
+	}	
+	printf("写入完毕，读取数据并比较...\r\n");
+	for (i = 0; i < SDRAM_SIZE; i++)
+	{
+		ReadData_8b = *(__IO uint8_t*) (SDRAM_BANK_ADDR + i);
+		if( ReadData_8b != (uint8_t)i )      //检测数据，若不相等，跳出函数,返回检测失败结果。
+		{
+			DEBUG_ERROR("8位数据宽度读写测试失败！！");
+			DEBUG_ERROR("请检查NBL0和NBL1的连接");
+			return SDRAM_ERROR;	 // 返回失败标志
+		}
+	}	
+	printf("8位数据宽度读写通过");
+	printf("SDRAM读写测试通过，系统正常");
+
+	return SDRAM_OK;	 // 返回成功标志
 }
 
 /**

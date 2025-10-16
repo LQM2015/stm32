@@ -212,9 +212,6 @@ int main(void)
   DEBUG_INFO("Bootloader handoff successful!");
   DEBUG_INFO("Starting main function initialization...");
   
-  /* 运行调试测试 */
-  debug_test();
-  
   /* ========================================
    * SDRAM 初始化和测试
    * ======================================== */
@@ -229,17 +226,6 @@ int main(void)
     DEBUG_INFO("SDRAM Base Address: 0x%08X", SDRAM_BANK_ADDR);
     DEBUG_INFO("SDRAM Size: %d MB", SDRAM_SIZE / 1024 / 1024);
     
-    // 运行SDRAM读写测试
-    DEBUG_INFO("");
-    if (BSP_SDRAM_Test() == SDRAM_OK) {
-      DEBUG_INFO("SDRAM is ready for use!");
-      
-      // 运行性能测试（可选）
-      DEBUG_INFO("");
-      BSP_SDRAM_Performance_Test();
-    } else {
-      DEBUG_ERROR("SDRAM test failed!");
-    }
   } else {
     DEBUG_ERROR("SDRAM initialization failed!");
   }
@@ -417,20 +403,13 @@ void MPU_Config(void)
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
   /** Initializes and configures the Region and the memory to be protected
-   *  Region 4: SDRAM (0xC0000000 - 0xC1FFFFFF, 32MB) - IS42S32800J
-   *  配置为 Write-Back Cacheable 以获得最佳性能
-   *  注意: Write-Back 模式需要在 DMA 访问前后手动管理 Cache 一致性
-   */
+  */
   MPU_InitStruct.Number = MPU_REGION_NUMBER4;
   MPU_InitStruct.BaseAddress = 0xC0000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;
-  MPU_InitStruct.SubRegionDisable = 0x0;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;               // TEX=1 用于 Write-Back
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;           // C=1 启用Cache
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;         // B=1 Write-Back模式
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enables the MPU */
