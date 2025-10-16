@@ -51,17 +51,17 @@ void MX_FMC_Init(void)
   hsdram1.Init.InternalBankNumber = FMC_SDRAM_INTERN_BANKS_NUM_4;
   hsdram1.Init.CASLatency = FMC_SDRAM_CAS_LATENCY_2;  // 降低CAS延迟从3到2
   hsdram1.Init.WriteProtection = FMC_SDRAM_WRITE_PROTECTION_DISABLE;
-  hsdram1.Init.SDClockPeriod = FMC_SDRAM_CLOCK_PERIOD_3;  // HCLK=240MHz, SDRAM时钟=80MHz (降低频率提高稳定性)
+  hsdram1.Init.SDClockPeriod = FMC_SDRAM_CLOCK_PERIOD_2;  // HCLK=240MHz, SDRAM时钟=120MHz (提高频率测试性能)
   hsdram1.Init.ReadBurst = FMC_SDRAM_RBURST_ENABLE;
   hsdram1.Init.ReadPipeDelay = FMC_SDRAM_RPIPE_DELAY_0;
-  /* SdramTiming - 根据IS42S32800J规格和80MHz时钟重新计算时序参数 */
+  /* SdramTiming - 根据IS42S32800J规格和120MHz时钟重新计算时序参数 */
   SdramTiming.LoadToActiveDelay = 2;              // tMRD: 2个时钟周期 (最小值)
-  SdramTiming.ExitSelfRefreshDelay = 11;        // tXSR: 127ns @ 80MHz = 10.16周期，取11
-  SdramTiming.SelfRefreshTime = 5;              // tRAS: 42ns @ 80MHz = 3.36周期，取5
-  SdramTiming.RowCycleDelay = 6;                // tRC: 63ns @ 80MHz = 5.04周期，取6
+  SdramTiming.ExitSelfRefreshDelay = 16;        // tXSR: 127ns @ 120MHz = 15.24周期，取16
+  SdramTiming.SelfRefreshTime = 7;              // tRAS: 42ns @ 120MHz = 5.04周期，取7
+  SdramTiming.RowCycleDelay = 10;               // tRC: 63ns @ 120MHz = 7.56周期，取10
   SdramTiming.WriteRecoveryTime = 2;            // tWR: 2个时钟周期 (最小值)
-  SdramTiming.RPDelay = 2;                      // tRP: 20ns @ 80MHz = 1.6周期，取2
-  SdramTiming.RCDDelay = 2;                     // tRCD: 20ns @ 80MHz = 1.6周期，取2
+  SdramTiming.RPDelay = 3;                      // tRP: 20ns @ 120MHz = 2.4周期，取3
+  SdramTiming.RCDDelay = 3;                     // tRCD: 20ns @ 120MHz = 2.4周期，取3
 
   if (HAL_SDRAM_Init(&hsdram1, &SdramTiming) != HAL_OK)
   {
