@@ -52,6 +52,7 @@ MEMORY
   RAM_D2 (xrw)     : ORIGIN = 0x30000000, LENGTH = 288K      /* SRAM1+SRAM2 @ 0x30000000 */
   RAM_D3 (xrw)     : ORIGIN = 0x38000000, LENGTH = 64K       /* SRAM4 @ 0x38000000 */
   ITCMRAM (xrw)    : ORIGIN = 0x00000000, LENGTH = 64K       /* ITCM @ 0x00000000 */
+  SDRAM   (rx)     : ORIGIN = 0xC0000000, LENGTH = 32M       /* External SDRAM @ 0xC0000000 */
 }
 
 /* Define output sections */
@@ -90,6 +91,31 @@ SECTIONS
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
   } >FLASH
+
+  /* SDRAM code and constants (loaded from FLASH, run in SDRAM) */
+  /* Place functions or consts into these sections by using section attributes */
+  /* e.g., __attribute__((section(".text_sdram"))) */
+  __sdram_text_load = LOADADDR(.text_sdram);
+  .text_sdram :
+  {
+    . = ALIGN(4);
+    __sdram_text_start = .;
+    *(.text_sdram)
+    *(.text_sdram*)
+    . = ALIGN(4);
+    __sdram_text_end = .;
+  } >SDRAM AT> FLASH
+
+  __sdram_rodata_load = LOADADDR(.rodata_sdram);
+  .rodata_sdram :
+  {
+    . = ALIGN(4);
+    __sdram_rodata_start = .;
+    *(.rodata_sdram)
+    *(.rodata_sdram*)
+    . = ALIGN(4);
+    __sdram_rodata_end = .;
+  } >SDRAM AT> FLASH
 
   .ARM.extab :
   {

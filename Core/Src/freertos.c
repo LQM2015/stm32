@@ -246,8 +246,8 @@ void StartDefaultTask(void *argument)
   DEBUG_INFO("========================================");
   
   
-  extern void BSP_SDRAM_Performance_Test(void);
-  BSP_SDRAM_Performance_Test();
+  //extern void BSP_SDRAM_Performance_Test(void);
+  //BSP_SDRAM_Performance_Test();
   
   
   /* Infinite loop */

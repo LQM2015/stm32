@@ -35,6 +35,8 @@
 #include "usart.h"
 #include "gpio.h"
 #include "fmc.h"
+#include <string.h>
+#include "sdram_loader.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -98,6 +100,9 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
   
+  /* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
@@ -192,16 +197,16 @@ int main(void)
   MX_USART1_UART_Init();
   DEBUG_INFO("USART1 initialized");
   
-  /* CRITICAL: Temporarily disable interrupts during FMC init
-   * to prevent any interrupt issues while running from external Flash */
-  __disable_irq();
+  /* ========================================
+   * SDRAM 初始化和测试
+   * ======================================== */
+  DEBUG_INFO("");
+  DEBUG_INFO("========================================");
+  DEBUG_INFO("  External SDRAM Loader");
+  DEBUG_INFO("========================================");
   
-  MX_FMC_Init();
-  DEBUG_INFO("FMC initialized");
-  
-  /* Re-enable interrupts after FMC initialization */
-  __enable_irq();
-  DEBUG_INFO("Interrupts re-enabled");
+  /* 调用SDRAM初始化与代码搬运函数 */
+  SDRAM_InitAndLoadSections();
   
   MX_SDMMC1_SD_Init();
   MX_FATFS_Init();
@@ -212,31 +217,11 @@ int main(void)
   DEBUG_INFO("Bootloader handoff successful!");
   DEBUG_INFO("Starting main function initialization...");
   
-  /* ========================================
-   * SDRAM 初始化和测试
-   * ======================================== */
-  DEBUG_INFO("");
-  DEBUG_INFO("========================================");
-  DEBUG_INFO("  Initializing External SDRAM");
-  DEBUG_INFO("========================================");
-  
-  // 初始化SDRAM时序和控制方式
-  if (BSP_SDRAM_Initialization_Sequence(&hsdram1) == SDRAM_OK) {
-    DEBUG_INFO("SDRAM initialization completed!");
-    DEBUG_INFO("SDRAM Base Address: 0x%08X", SDRAM_BANK_ADDR);
-    DEBUG_INFO("SDRAM Size: %d MB", SDRAM_SIZE / 1024 / 1024);
-    
-  } else {
-    DEBUG_ERROR("SDRAM initialization failed!");
-  }
-  
-  DEBUG_INFO("");
-  
-  DEBUG_INFO("UART1 initialized at 115200 baud");
-  DEBUG_INFO("QUADSPI initialized");
-  DEBUG_INFO("DMA and MDMA initialized");
-  DEBUG_INFO("GPIO initialized");
-  DEBUG_INFO("System ready, starting FreeRTOS scheduler...");
+  /* 运行SDRAM中的示例函数 */
+  extern void SDRAM_DemoFunction(void);
+  extern void SDRAM_DemoPrintBanner(void);
+  SDRAM_DemoFunction();
+  SDRAM_DemoPrintBanner();
   /* USER CODE END 2 */
 
   /* Init scheduler */
