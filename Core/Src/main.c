@@ -41,6 +41,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "bsp_sdram.h"
+#include "fatfs_init.h"
 #endif  /* !BOOTLOADER */
 /* USER CODE END Includes */
 
@@ -209,7 +210,6 @@ int main(void)
   SDRAM_InitAndLoadSections();
   
   MX_SDMMC1_SD_Init();
-  MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
   DEBUG_INFO("=== APP SUCCESSFULLY STARTED ===");
@@ -222,6 +222,16 @@ int main(void)
   extern void SDRAM_DemoPrintBanner(void);
   SDRAM_DemoFunction();
   SDRAM_DemoPrintBanner();
+  
+  /* 初始化FatFs文件系统 */
+  if (fatfs_init() == 0) {
+      /* 可选：运行简单测试 */
+      // fatfs_simple_test();
+      DEBUG_INFO("FatFs ready for use!");
+  } else {
+      DEBUG_ERROR("FatFs initialization failed!");
+      DEBUG_ERROR("File system operations will not be available.");
+  }
   /* USER CODE END 2 */
 
   /* Init scheduler */
