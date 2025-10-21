@@ -8,8 +8,10 @@
 
 #include "ff.h"
 #include "sdmmc.h"
+#include "diskio.h"
 #include "debug.h"
 #include <stdio.h>
+#include <stdint.h>
 
 /* 全局文件系统对象 */
 FATFS SDFatFS;
@@ -23,7 +25,7 @@ int fatfs_init(void)
     FRESULT res;
     
     DEBUG_INFO("========================================");
-    DEBUG_INFO("  FatFs文件系统初始化");
+    DEBUG_INFO("  FatFs Initialization");
     DEBUG_INFO("========================================");
     
     /* 1. 检查SD卡硬件状态 */
@@ -41,98 +43,58 @@ int fatfs_init(void)
     
     /* 2. 挂载文件系统 */
     DEBUG_INFO("挂载文件系统...");
+    /* Try mount once first */
     res = f_mount(&SDFatFS, "SD:", 1);
     
     if (res != FR_OK) {
-        DEBUG_ERROR("挂载失败! 错误码: %d", res);
+        DEBUG_ERROR("Mount failed: %d", res);
         
-        /* 如果是FR_NO_FILESYSTEM(13)，说明SD卡未格式化 */
+        /* Try formatting if no filesystem found */
         if (res == FR_NO_FILESYSTEM) {
-            DEBUG_WARN("SD卡未格式化，正在格式化为FAT32...");
+            DEBUG_WARN("Formatting SD card as FAT32...");
             
-            BYTE work[FF_MAX_SS];  /* 工作缓冲区 */
+            BYTE work[FF_MAX_SS];
             MKFS_PARM opt = {
-                .fmt = FM_FAT32,   /* FAT32格式 */
-                .n_fat = 0,        /* 自动选择FAT数量 */
-                .align = 0,        /* 自动对齐 */
-                .n_root = 0,       /* FAT32不使用此参数 */
-                .au_size = 0       /* 自动选择分配单元大小 */
+                .fmt = FM_FAT32,
+                .n_fat = 0,
+                .align = 0,
+                .n_root = 0,
+                .au_size = 0
             };
             
             res = f_mkfs("SD:", &opt, work, sizeof(work));
             if (res == FR_OK) {
-                DEBUG_INFO("✓ 格式化成功");
-                
-                /* 重新挂载 */
+                DEBUG_INFO("Format OK");
                 res = f_mount(&SDFatFS, "SD:", 1);
-                if (res == FR_OK) {
-                    DEBUG_INFO("✓ 重新挂载成功");
-                } else {
-                    DEBUG_ERROR("重新挂载失败! 错误码: %d", res);
+                if (res != FR_OK) {
+                    DEBUG_ERROR("Remount failed: %d", res);
                     return -1;
                 }
             } else {
-                DEBUG_ERROR("格式化失败! 错误码: %d", res);
+                DEBUG_ERROR("Format failed: %d", res);
                 return -1;
             }
         } else {
-            /* 其他错误 */
-            const char *error_msg;
-            switch(res) {
-                case FR_DISK_ERR:      error_msg = "磁盘底层错误"; break;
-                case FR_INT_ERR:       error_msg = "内部错误"; break;
-                case FR_NOT_READY:     error_msg = "磁盘未就绪"; break;
-                case FR_INVALID_DRIVE: error_msg = "无效的驱动器号"; break;
-                default:               error_msg = "未知错误"; break;
-            }
-            DEBUG_ERROR("挂载失败: %s", error_msg);
             return -1;
         }
-    } else {
-        DEBUG_INFO("✓ 文件系统挂载成功");
     }
     
-    /* 3. 显示磁盘信息 */
-    DEBUG_INFO("查询磁盘信息...");
+    DEBUG_INFO("Mount OK");
+    
+    /* Get disk info */
     FATFS *fs;
     DWORD fre_clust, fre_sect, tot_sect;
     
     res = f_getfree("SD:", &fre_clust, &fs);
     if (res == FR_OK) {
-        /* 计算总空间和剩余空间（扇区） */
         tot_sect = (fs->n_fatent - 2) * fs->csize;
         fre_sect = fre_clust * fs->csize;
         
-        DEBUG_INFO("磁盘信息:");
-        DEBUG_INFO("  文件系统: FAT%d", fs->fs_type);
-        DEBUG_INFO("  总容量: %lu KB (%lu MB)", 
-                   tot_sect / 2, tot_sect / 2048);
-        DEBUG_INFO("  可用空间: %lu KB (%lu MB)", 
-                   fre_sect / 2, fre_sect / 2048);
-        DEBUG_INFO("  已使用: %.1f%%", 
-                   100.0 * (tot_sect - fre_sect) / tot_sect);
-        DEBUG_INFO("  扇区大小: %u bytes", FF_MAX_SS);
-        DEBUG_INFO("  簇大小: %u 扇区", fs->csize);
-    } else {
-        DEBUG_WARN("无法获取磁盘信息 (错误码: %d)", res);
+        DEBUG_INFO("FAT%d: %lu MB total, %lu MB free", 
+                   fs->fs_type, tot_sect / 2048, fre_sect / 2048);
     }
     
-    /* 4. 获取卷标（可选） */
-    char label[12];
-    DWORD vsn;
-    res = f_getlabel("SD:", label, &vsn);
-    if (res == FR_OK) {
-        if (label[0]) {
-            DEBUG_INFO("  卷标: %s", label);
-        } else {
-            DEBUG_INFO("  卷标: (无)");
-        }
-        DEBUG_INFO("  序列号: %08lX", vsn);
-    }
-    
-    DEBUG_INFO("========================================");
-    DEBUG_INFO("  FatFs初始化完成!");
-    DEBUG_INFO("========================================");
+    DEBUG_INFO("FatFs ready");
     
     return 0;
 }

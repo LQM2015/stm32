@@ -221,29 +221,21 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
   
-  /* 初始化调试系统 */
+  /* Initialize debug system */
   debug_init();
   
-  DEBUG_INFO("FreeRTOS Default Task started");
-  DEBUG_INFO("Task Name: %s", pcTaskGetName(NULL));
-  DEBUG_INFO("Task Priority: %d", (int)osThreadGetPriority(defaultTaskHandle));
-  DEBUG_INFO("Free Heap Size: %d bytes", (int)xPortGetFreeHeapSize());
+  DEBUG_INFO("FreeRTOS started (heap: %d bytes)", (int)xPortGetFreeHeapSize());
   
-  /* 检查任务堆栈大小 */
-  UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-  DEBUG_INFO("Stack High Water Mark: %d bytes (unused)", stackHighWaterMark * 4);
-  
-  /* 延时一下，确保系统完全初始化 */
+  /* Wait for system stabilization */
   osDelay(100);
-
-  DEBUG_INFO("=== System Initialization Complete ===");
   
-  
-  /* 在FreeRTOS任务中运行SDRAM性能测试（有足够的任务堆栈） */
-  DEBUG_INFO("");
-  DEBUG_INFO("========================================");
-  DEBUG_INFO("  Running SDRAM Performance Test");
-  DEBUG_INFO("========================================");
+  /* Initialize FatFs in RTOS task context (required for DMA/interrupts) */
+  extern int fatfs_init(void);
+  if (fatfs_init() == 0) {
+      DEBUG_INFO("FatFs OK");
+  } else {
+      DEBUG_ERROR("FatFs init failed");
+  }
   
   
   //extern void BSP_SDRAM_Performance_Test(void);
@@ -258,12 +250,12 @@ void StartDefaultTask(void *argument)
     loop_count++;
     
     /* 每10秒打印一次状态信息 */
-    if (loop_count % 10000 == 0) {
+    if (loop_count % 10 == 0) {
       DEBUG_INFO("System running - Loop: %lu, Free Heap: %d bytes", 
                  loop_count / 1000, (int)xPortGetFreeHeapSize());
     }
     
-    osDelay(1);
+    osDelay(1000);
   }
   /* USER CODE END StartDefaultTask */
 }

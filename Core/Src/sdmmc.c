@@ -76,6 +76,10 @@ void HAL_SD_MspInit(SD_HandleTypeDef* sdHandle)
 
     /* SDMMC1 clock enable */
     __HAL_RCC_SDMMC1_CLK_ENABLE();
+    
+    /* USER CODE: Enable IDMAC (Internal DMA Controller) for STM32H7 */
+    /* IDMAC is part of SDMMC peripheral, no separate clock needed */
+    /* But we need to ensure AHB clock is enabled for DMA transfers */
 
     __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -87,20 +91,31 @@ void HAL_SD_MspInit(SD_HandleTypeDef* sdHandle)
     PC8     ------> SDMMC1_D0
     PC9     ------> SDMMC1_D1
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_8
-                          |GPIO_PIN_9;
+    /* USER CODE BEGIN SDMMC1_GPIO_Config */
+    /* Configure SDMMC1 data pins (D0-D3) with pull-up */
+    GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;  /* Pull-up required for SD data lines */
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF12_SDIO1;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+    
+    /* Configure SDMMC1 clock pin (CK) without pull */
+    GPIO_InitStruct.Pin = GPIO_PIN_12;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;  /* Clock line should not have pull */
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF12_SDIO1;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+    /* Configure SDMMC1 command pin (CMD) with pull-up */
     GPIO_InitStruct.Pin = GPIO_PIN_2;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;  /* Pull-up required for CMD line */
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF12_SDIO1;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    /* USER CODE END SDMMC1_GPIO_Config */
 
     /* SDMMC1 interrupt Init */
     HAL_NVIC_SetPriority(SDMMC1_IRQn, 5, 0);
