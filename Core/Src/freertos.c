@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "shell_log.h"  /* SHELL_LOG_TASK_xxx macros */
 #include "fatfs_init.h"
+#include "sdmmc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,12 +57,21 @@ const osThreadAttr_t defaultTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 
+/* Definitions for fileSystemTask */
+osThreadId_t fileSystemTaskHandle;
+const osThreadAttr_t fileSystemTask_attributes = {
+  .name = "fileSystemTask",
+  .stack_size = 1024 * 4,  // 4KB栈空间用于文件系统操作
+  .priority = (osPriority_t) osPriorityNormal,
+};
+
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
+void StartFileSystemTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -220,6 +230,8 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  /* creation of fileSystemTask */
+  fileSystemTaskHandle = osThreadNew(StartFileSystemTask, NULL, &fileSystemTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -239,26 +251,15 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
   
-  /* Initialize debug system */
-  debug_init();
-  
-  SHELL_LOG_TASK_INFO("FreeRTOS started (heap: %d bytes)", (int)xPortGetFreeHeapSize());
+  SHELL_LOG_TASK_INFO("DefaultTask: FreeRTOS started (heap: %d bytes)", (int)xPortGetFreeHeapSize());
   
   /* Wait for system stabilization */
   osDelay(100);
   
-  /* Initialize FatFs in RTOS task context (required for DMA/interrupts) */
-  extern int fatfs_init(void);
-  if (fatfs_init() == 0) {
-      SHELL_LOG_FATFS_INFO("FatFs OK");
-  } else {
-      SHELL_LOG_FATFS_ERROR("FatFs init failed");
-  }
-  
-  
   //extern void BSP_SDRAM_Performance_Test(void);
   //BSP_SDRAM_Performance_Test();
   
+  SHELL_LOG_TASK_INFO("DefaultTask: Initialization complete");
   
   /* Infinite loop */
   uint32_t loop_count = 0;
@@ -269,13 +270,57 @@ void StartDefaultTask(void *argument)
     
     /* 每10秒打印一次状态信息 */
     if (loop_count % 10 == 0) {
-      SHELL_LOG_TASK_DEBUG("System running - Loop: %lu, Free Heap: %d bytes", 
-                 loop_count / 1000, (int)xPortGetFreeHeapSize());
+      SHELL_LOG_TASK_DEBUG("DefaultTask: Running - Loop: %lu, Free Heap: %d bytes", 
+                 loop_count / 10, (int)xPortGetFreeHeapSize());
     }
     
     osDelay(1000);
   }
   /* USER CODE END StartDefaultTask */
+}
+
+/**
+  * @brief  Function implementing the fileSystemTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+void StartFileSystemTask(void *argument)
+{
+  /* USER CODE BEGIN StartFileSystemTask */
+  
+  SHELL_LOG_TASK_INFO("FileSystemTask: Starting...");
+  
+  /* Wait a bit to ensure other peripherals are ready */
+  osDelay(200);
+  
+  /* Initialize SDMMC1 in RTOS context */
+  SHELL_LOG_TASK_INFO("FileSystemTask: Initializing SD card...");
+  MX_SDMMC1_SD_Init();
+  SHELL_LOG_TASK_INFO("FileSystemTask: SD card initialization complete");
+  
+  /* Initialize FatFs (required for DMA/interrupts) */
+  SHELL_LOG_TASK_INFO("FileSystemTask: Initializing FatFs...");
+  if (fatfs_init() == 0) {
+      SHELL_LOG_FATFS_INFO("FileSystemTask: FatFs initialized successfully");
+  } else {
+      SHELL_LOG_FATFS_ERROR("FileSystemTask: FatFs initialization failed");
+  }
+  
+  SHELL_LOG_TASK_INFO("FileSystemTask: File system ready");
+  
+  /* Infinite loop - File system management tasks */
+  for(;;)
+  {
+    /* 这里可以添加文件系统相关的周期性任务 */
+    /* 例如：
+     * - 监控SD卡状态
+     * - 定期同步文件系统
+     * - 处理文件操作队列
+     */
+    
+    osDelay(5000);  // 每5秒检查一次
+  }
+  /* USER CODE END StartFileSystemTask */
 }
 
 /* Private application code --------------------------------------------------*/

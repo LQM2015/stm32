@@ -220,7 +220,6 @@ int main(void)
   SDRAM_DemoFunction();
   SDRAM_DemoPrintBanner();
   
-  MX_SDMMC1_SD_Init();
   /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
   SHELL_LOG_SYS_INFO("Letter Shell initialized successfully");

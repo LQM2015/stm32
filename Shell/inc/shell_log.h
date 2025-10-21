@@ -189,7 +189,7 @@ void shellLogPrint(ShellLogModule_t module, ShellLogLevel_t level, const char* f
 #define SHELL_LOG_UART_WARNING(format, ...)    SHELL_LOG_WARNING(SHELL_LOG_MODULE_UART, format, ##__VA_ARGS__)
 #define SHELL_LOG_UART_ERROR(format, ...)      SHELL_LOG_ERROR(SHELL_LOG_MODULE_UART, format, ##__VA_ARGS__)
 
-#define SHELL_LOG_FATFS_DEBUG(format, ...)     SHELL_LOG_DEBUG(SHELL_LOG_MODULE_FATFS, format, ##__VA_ARGS__)
+#define SHELL_LOG_FATFS_DEBUG(format, ...)     //SHELL_LOG_DEBUG(SHELL_LOG_MODULE_FATFS, format, ##__VA_ARGS__)
 #define SHELL_LOG_FATFS_INFO(format, ...)      SHELL_LOG_INFO(SHELL_LOG_MODULE_FATFS, format, ##__VA_ARGS__)
 #define SHELL_LOG_FATFS_WARNING(format, ...)   SHELL_LOG_WARNING(SHELL_LOG_MODULE_FATFS, format, ##__VA_ARGS__)
 #define SHELL_LOG_FATFS_ERROR(format, ...)     SHELL_LOG_ERROR(SHELL_LOG_MODULE_FATFS, format, ##__VA_ARGS__)
