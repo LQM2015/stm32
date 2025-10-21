@@ -67,8 +67,15 @@ void SDRAM_InitAndLoadSections(void)
   uint32_t text_size   = (uint32_t)&__sdram_text_end   - (uint32_t)&__sdram_text_start;
   uint32_t rodata_size = (uint32_t)&__sdram_rodata_end - (uint32_t)&__sdram_rodata_start;
 
+  SHELL_LOG_MEMORY_INFO("SDRAM sections to copy:");
+  SHELL_LOG_MEMORY_INFO("  .text_sdram:   load=0x%08X, start=0x%08X, size=%lu bytes", 
+                        (uint32_t)&__sdram_text_load, (uint32_t)&__sdram_text_start, text_size);
+  SHELL_LOG_MEMORY_INFO("  .rodata_sdram: load=0x%08X, start=0x%08X, size=%lu bytes", 
+                        (uint32_t)&__sdram_rodata_load, (uint32_t)&__sdram_rodata_start, rodata_size);
+
   /* 使用MDMA进行搬运 */
   if (text_size) {
+    SHELL_LOG_MEMORY_INFO("Starting MDMA copy for .text_sdram...");
     if (mdma_copy_blocks((uint32_t)&__sdram_text_load, (uint32_t)&__sdram_text_start, text_size) != HAL_OK) {
       SHELL_LOG_MEMORY_ERROR("MDMA copy .text_sdram failed");
     } else {
@@ -76,6 +83,7 @@ void SDRAM_InitAndLoadSections(void)
     }
   }
   if (rodata_size) {
+    SHELL_LOG_MEMORY_INFO("Starting MDMA copy for .rodata_sdram...");
     if (mdma_copy_blocks((uint32_t)&__sdram_rodata_load, (uint32_t)&__sdram_rodata_start, rodata_size) != HAL_OK) {
       SHELL_LOG_MEMORY_ERROR("MDMA copy .rodata_sdram failed");
     } else {
@@ -83,6 +91,8 @@ void SDRAM_InitAndLoadSections(void)
     }
   }
 
+  SHELL_LOG_MEMORY_INFO("Starting cache synchronization...");
+  
   /* 失效目的区域D-Cache，随后失效I-Cache，确保取指从SDRAM */
   if (text_size) {
     uint32_t start = (uint32_t)&__sdram_text_start;
@@ -95,8 +105,10 @@ void SDRAM_InitAndLoadSections(void)
     SCB_InvalidateDCache_by_Addr((uint32_t*)start, inv_len);
   }
   __DSB();
+  SHELL_LOG_MEMORY_INFO("Invalidating I-Cache...");
   SCB_InvalidateICache();
   __DSB();
   __ISB();
   SHELL_LOG_MEMORY_INFO("SDRAM loader completed. Caches updated");
+  SHELL_LOG_MEMORY_INFO("Returning to main application...");
 }

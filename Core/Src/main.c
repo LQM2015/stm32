@@ -219,6 +219,7 @@ int main(void)
   MX_SDMMC1_SD_Init();
   /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
+  SHELL_LOG_SYS_INFO("Letter Shell initialized successfully");
   SHELL_LOG_SYS_INFO("=== APP SUCCESSFULLY STARTED ===");
   SHELL_LOG_SYS_INFO("APP is running from external Flash at 0x90000000");
   SHELL_LOG_SYS_INFO("Bootloader handoff successful!");
@@ -233,10 +234,13 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Init scheduler */
+  SHELL_LOG_SYS_INFO("Initializing FreeRTOS kernel...");
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  SHELL_LOG_SYS_INFO("Creating FreeRTOS tasks...");
   MX_FREERTOS_Init();
 
   /* Start scheduler */
+  SHELL_LOG_SYS_INFO("Starting FreeRTOS scheduler...");
   osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */

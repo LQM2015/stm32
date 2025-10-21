@@ -41,7 +41,9 @@ BSP_SDRAM_StatusTypeDef BSP_SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef *h
         return SDRAM_ERROR;
     }
     
-    HAL_Delay(1);  // 延时等待
+    // Use CPU cycle delay instead of HAL_Delay (which requires SysTick interrupt)
+    // 1ms @ 480MHz = 480,000 cycles, use simple loop for early boot stage
+    for (volatile uint32_t i = 0; i < 480000; i++) { __NOP(); }
     SHELL_LOG_MEM_INFO("SDRAM clock enabled");
 
     /* Step 2: 配置预充电命�?*/

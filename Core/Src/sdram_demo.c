@@ -2,7 +2,8 @@
 #include "shell_log.h"  /* APP uses SHELL_LOG_MEMORY_xxx macros */
 
 /* 将此函数链接到SDRAM执行区域 */
-__attribute__((section(".text_sdram")))
+/* __attribute__((used)) prevents linker from optimizing out these functions */
+__attribute__((section(".text_sdram"), used))
 void SDRAM_DemoFunction(void)
 {
     volatile uint32_t acc = 0;
@@ -14,10 +15,10 @@ void SDRAM_DemoFunction(void)
 }
 
 /* 放一个常量到SDRAM只读区域 */
-__attribute__((section(".rodata_sdram")))
+__attribute__((section(".rodata_sdram"), used))
 static const char *sdram_demo_banner = "SDRAM code section is active";
 
-__attribute__((section(".text_sdram")))
+__attribute__((section(".text_sdram"), used))
 void SDRAM_DemoPrintBanner(void)
 {
     SHELL_LOG_MEMORY_INFO("[SDRAM Demo] %s", sdram_demo_banner);
