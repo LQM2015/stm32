@@ -1,4 +1,4 @@
-/*-----------------------------------------------------------------------*/
+﻿/*-----------------------------------------------------------------------*/
 /* Low level disk I/O module for FatFs - STM32H750 SD Card              */
 /*-----------------------------------------------------------------------*/
 /* Implementation for MMC/SD card via SDMMC interface                    */
@@ -11,7 +11,8 @@
 /* USER CODE BEGIN Includes */
 #include "sdmmc.h"		/* STM32 SDMMC HAL driver */
 #include "string.h"
-#include "debug.h"      /* For DEBUG_INFO/DEBUG_ERROR/DEBUG_WARN */
+#include "debug.h"      /* For legacy compatibility */
+#include "shell_log.h"  /* SHELL_LOG_FATFS_xxx macros */
 #include "cmsis_os.h"   /* For FreeRTOS semaphore */
 #include "core_cm7.h"   /* For SCB cache operations */
 /* USER CODE END Includes */
@@ -91,7 +92,7 @@ DSTATUS disk_initialize (
 	if (sd_semaphore == NULL) {
 		sd_semaphore = osSemaphoreNew(1, 0, NULL);
 		if (sd_semaphore == NULL) {
-			DEBUG_ERROR("[diskio] Failed to create semaphore");
+			SHELL_LOG_FATFS_ERROR("[diskio] Failed to create semaphore");
 			return STA_NOINIT;
 		}
 	}
@@ -108,7 +109,7 @@ DSTATUS disk_initialize (
 		if (HAL_SD_Init(&hsd1) == HAL_OK) {
 			Stat &= ~STA_NOINIT;
 		} else {
-			DEBUG_ERROR("[diskio] HAL_SD_Init failed");
+			SHELL_LOG_FATFS_ERROR("[diskio] HAL_SD_Init failed");
 		}
 	}
 	
@@ -145,13 +146,13 @@ DRESULT disk_read (
 	}
 	
 	if (card_state != HAL_SD_CARD_TRANSFER) {
-		DEBUG_ERROR("[diskio] Card not ready: %d", card_state);
+		SHELL_LOG_FATFS_ERROR("[diskio] Card not ready: %d", card_state);
 		return RES_NOTRDY;
 	}
 	
 	/* Check if semaphore is ready */
 	if (sd_semaphore == NULL) {
-		DEBUG_ERROR("[diskio] Semaphore not initialized");
+		SHELL_LOG_FATFS_ERROR("[diskio] Semaphore not initialized");
 		return RES_ERROR;
 	}
 	
@@ -166,7 +167,7 @@ DRESULT disk_read (
 		
 		/* For multi-sector with unaligned buffer, we can only handle 1 sector at a time */
 		if (count > 1) {
-			DEBUG_ERROR("[diskio] Multi-sector unaligned read not supported");
+			SHELL_LOG_FATFS_ERROR("[diskio] Multi-sector unaligned read not supported");
 			return RES_PARERR;
 		}
 	}
@@ -199,7 +200,7 @@ DRESULT disk_read (
 			uint32_t timeout = HAL_GetTick() + 1000;
 			while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER) {
 				if (HAL_GetTick() >= timeout) {
-					DEBUG_ERROR("[diskio] disk_read: timeout waiting for TRANSFER state");
+					SHELL_LOG_FATFS_ERROR("[diskio] disk_read: timeout waiting for TRANSFER state");
 					return RES_ERROR;
 				}
 			}
@@ -211,12 +212,12 @@ DRESULT disk_read (
 			
 			res = RES_OK;
 		} else {
-			DEBUG_ERROR("[diskio] disk_read: DMA timeout (sem=%d, dma=%d, err=0x%08lX)", 
+			SHELL_LOG_FATFS_ERROR("[diskio] disk_read: DMA timeout (sem=%d, dma=%d, err=0x%08lX)", 
 			           sem_status, sd_dma_status, hsd1.ErrorCode);
 			res = RES_ERROR;
 		}
 	} else {
-		DEBUG_ERROR("[diskio] disk_read: HAL_SD_ReadBlocks_DMA failed: %d", hal_status);
+		SHELL_LOG_FATFS_ERROR("[diskio] disk_read: HAL_SD_ReadBlocks_DMA failed: %d", hal_status);
 		res = RES_ERROR;
 	}
 	
@@ -244,16 +245,16 @@ DRESULT disk_read (
 							memcpy(buff, dma_buffer, 512);
 						}
 						res = RES_OK;
-						DEBUG_INFO("[diskio] disk_read: retry after recovery succeeded");
+						SHELL_LOG_FATFS_INFO("[diskio] disk_read: retry after recovery succeeded");
 					}
 				}
 			}
 			
 			if (res != RES_OK) {
-				DEBUG_ERROR("[diskio] disk_read: retry after recovery failed");
+				SHELL_LOG_FATFS_ERROR("[diskio] disk_read: retry after recovery failed");
 			}
 		} else {
-			DEBUG_ERROR("[diskio] disk_read: card recovery failed");
+			SHELL_LOG_FATFS_ERROR("[diskio] disk_read: card recovery failed");
 		}
 	}
 	
@@ -283,11 +284,11 @@ DRESULT disk_write (
 		return RES_PARERR;
 	}
 	
-	DEBUG_INFO("[diskio] disk_write: pdrv=%d, sector=%lu, count=%u", pdrv, sector, count);
+	SHELL_LOG_FATFS_DEBUG("[diskio] disk_write: pdrv=%d, sector=%lu, count=%u", pdrv, sector, count);
 	
 	/* Check if semaphore is ready */
 	if (sd_semaphore == NULL) {
-		DEBUG_ERROR("[diskio] disk_write: Semaphore not initialized!");
+		SHELL_LOG_FATFS_ERROR("[diskio] disk_write: Semaphore not initialized!");
 		return RES_ERROR;
 	}
 	
@@ -297,12 +298,12 @@ DRESULT disk_write (
 	
 	/* Check if user buffer is 32-byte aligned */
 	if (((uint32_t)buff & (DMA_BUFFER_ALIGNMENT - 1)) != 0) {
-		DEBUG_WARN("[diskio] disk_write: Buffer not aligned (0x%08lX), using internal buffer", (uint32_t)buff);
+		SHELL_LOG_FATFS_WARNING("[diskio] disk_write: Buffer not aligned (0x%08lX), using internal buffer", (uint32_t)buff);
 		use_internal_buffer = 1;
 		
 		/* For multi-sector with unaligned buffer, we can only handle 1 sector at a time */
 		if (count > 1) {
-			DEBUG_ERROR("[diskio] disk_write: Multi-sector write with unaligned buffer not supported!");
+			SHELL_LOG_FATFS_ERROR("[diskio] disk_write: Multi-sector write with unaligned buffer not supported!");
 			return RES_PARERR;
 		}
 		
@@ -317,7 +318,7 @@ DRESULT disk_write (
 		dma_size = 512;
 	}
 	
-	DEBUG_INFO("[diskio] disk_write: Cleaning D-Cache for address 0x%08lX, size %lu", 
+	SHELL_LOG_FATFS_DEBUG("[diskio] disk_write: Cleaning D-Cache for address 0x%08lX, size %lu", 
 	          (uint32_t)dma_source, dma_size);
 	SCB_CleanDCache_by_Addr((uint32_t*)dma_source, dma_size);
 	
@@ -325,7 +326,7 @@ DRESULT disk_write (
 	sd_dma_status = HAL_OK;
 	
 	HAL_StatusTypeDef hal_status = HAL_SD_WriteBlocks_DMA(&hsd1, (uint8_t*)dma_source, (uint32_t)sector, count);
-	DEBUG_INFO("[diskio] disk_write: HAL_SD_WriteBlocks_DMA started, status=%d", hal_status);
+	SHELL_LOG_FATFS_DEBUG("[diskio] disk_write: HAL_SD_WriteBlocks_DMA started, status=%d", hal_status);
 	
 	if (hal_status == HAL_OK) {
 		/* Wait for DMA transfer complete using semaphore */
@@ -336,19 +337,19 @@ DRESULT disk_write (
 			uint32_t timeout = HAL_GetTick() + 1000;
 			while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER) {
 				if (HAL_GetTick() >= timeout) {
-					DEBUG_ERROR("[diskio] disk_write: timeout waiting for TRANSFER state");
+					SHELL_LOG_FATFS_ERROR("[diskio] disk_write: timeout waiting for TRANSFER state");
 					return RES_ERROR;
 				}
 			}
 			res = RES_OK;
-			DEBUG_INFO("[diskio] disk_write: DMA success");
+			SHELL_LOG_FATFS_DEBUG("[diskio] disk_write: DMA success");
 		} else {
-			DEBUG_ERROR("[diskio] disk_write: DMA failed, sem_status=%d, dma_status=%d, ErrorCode=0x%08lX", 
+			SHELL_LOG_FATFS_ERROR("[diskio] disk_write: DMA failed, sem_status=%d, dma_status=%d, ErrorCode=0x%08lX", 
 			           sem_status, sd_dma_status, hsd1.ErrorCode);
 			res = RES_ERROR;
 		}
 	} else {
-		DEBUG_ERROR("[diskio] disk_write: HAL_SD_WriteBlocks_DMA start failed with status %d", hal_status);
+		SHELL_LOG_FATFS_ERROR("[diskio] disk_write: HAL_SD_WriteBlocks_DMA start failed with status %d", hal_status);
 		res = RES_ERROR;
 	}
 	
@@ -544,7 +545,13 @@ void HAL_SD_ErrorCallback(SD_HandleTypeDef *hsd)
 		sd_write_complete = 0;
 		sd_dma_status = HAL_ERROR;
 		
+#if defined(BOOTLOADER)
+		/* BOOTLOADER 模式使用 DEBUG_xxx 宏 */
 		DEBUG_ERROR("[diskio] DMA Error: 0x%08lX", hsd1.ErrorCode);
+#else
+		/* APP 模式使用 SHELL_LOG_xxx 宏 */
+		SHELL_LOG_FATFS_ERROR("[diskio] DMA Error: 0x%08lX", hsd1.ErrorCode);
+#endif
 		
 		/* Release semaphore to unblock waiting task */
 		if (sd_semaphore != NULL) {

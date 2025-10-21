@@ -1,4 +1,4 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -17,10 +17,12 @@
   */
 #if defined(BOOTLOADER)
 /* Bootloader mode - only essential includes */
+#include "main.h"
 #include "quadspi.h"
 #include "usart.h"
 #include "gpio.h"
 #include "bootloader.h"
+#include "debug.h"  /* BOOTLOADER uses debug.h */
 #else
 
 /* USER CODE END Header */
@@ -42,6 +44,8 @@
 /* USER CODE BEGIN Includes */
 #include "bsp_sdram.h"
 #include "fatfs_init.h"
+#include "shell_log.h"  /* APP uses SHELL_LOG_xxx macros */
+/* NOTE: APP主程序不再使用 debug.h，彻底使用 shell_log.h */
 #endif  /* !BOOTLOADER */
 /* USER CODE END Includes */
 
@@ -196,15 +200,18 @@ int main(void)
   MX_MDMA_Init();
   MX_DMA_Init();
   MX_USART1_UART_Init();
-  DEBUG_INFO("USART1 initialized");
+    /* 初始化 Letter Shell 终端 */
+  extern void shell_init(void);
+  shell_init();
+  SHELL_LOG_SYS_INFO("Letter Shell initialized successfully");
   
   /* ========================================
    * SDRAM 初始化和测试
    * ======================================== */
-  DEBUG_INFO("");
-  DEBUG_INFO("========================================");
-  DEBUG_INFO("  External SDRAM Loader");
-  DEBUG_INFO("========================================");
+  SHELL_LOG_SYS_INFO("");
+  SHELL_LOG_SYS_INFO("========================================");
+  SHELL_LOG_SYS_INFO("  External SDRAM Loader");
+  SHELL_LOG_SYS_INFO("========================================");
   
   /* 调用SDRAM初始化与代码搬运函数 */
   SDRAM_InitAndLoadSections();
@@ -212,10 +219,10 @@ int main(void)
   MX_SDMMC1_SD_Init();
   /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
-  DEBUG_INFO("=== APP SUCCESSFULLY STARTED ===");
-  DEBUG_INFO("APP is running from external Flash at 0x90000000");
-  DEBUG_INFO("Bootloader handoff successful!");
-  DEBUG_INFO("Starting main function initialization...");
+  SHELL_LOG_SYS_INFO("=== APP SUCCESSFULLY STARTED ===");
+  SHELL_LOG_SYS_INFO("APP is running from external Flash at 0x90000000");
+  SHELL_LOG_SYS_INFO("Bootloader handoff successful!");
+  SHELL_LOG_SYS_INFO("Starting main function initialization...");
   
   /* 运行SDRAM中的示例函数 */
   extern void SDRAM_DemoFunction(void);
@@ -242,7 +249,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     /* 这里不应该执行到，因为控制权已经交给FreeRTOS调度器 */
-    DEBUG_ERROR("ERROR: Unexpected return from FreeRTOS scheduler!");
+    SHELL_LOG_SYS_ERROR("ERROR: Unexpected return from FreeRTOS scheduler!");
     HAL_Delay(1000);
   }
 #endif /* Normal application mode */
@@ -438,7 +445,8 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   
-  /* 输出错误信息 */
+#if defined(BOOTLOADER)
+  /* BOOTLOADER 模式使用 DEBUG_xxx 宏 */
   DEBUG_ERROR("=== SYSTEM ERROR DETECTED ===");
   DEBUG_ERROR("Error Handler called from: %s", __FILE__);
   DEBUG_ERROR("System will be halted");
@@ -447,6 +455,17 @@ void Error_Handler(void)
   /* 打印当前系统状态 */
   DEBUG_ERROR("Current Tick: %lu", HAL_GetTick());
   DEBUG_ERROR("SYSCLK: %lu Hz", HAL_RCC_GetSysClockFreq());
+#else
+  /* APP 模式使用 SHELL_LOG_xxx 宏 */
+  SHELL_LOG_SYS_ERROR("=== SYSTEM ERROR DETECTED ===");
+  SHELL_LOG_SYS_ERROR("Error Handler called from: %s", __FILE__);
+  SHELL_LOG_SYS_ERROR("System will be halted");
+  SHELL_LOG_SYS_ERROR("Check UART output for more details");
+  
+  /* 打印当前系统状态 */
+  SHELL_LOG_SYS_ERROR("Current Tick: %lu", HAL_GetTick());
+  SHELL_LOG_SYS_ERROR("SYSCLK: %lu Hz", HAL_RCC_GetSysClockFreq());
+#endif
   
   /* 禁用中断并进入死循环 */
   __disable_irq();
@@ -470,7 +489,8 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-#if !defined(BOOTLOADER)
+#if defined(BOOTLOADER)
+  /* BOOTLOADER mode - use DEBUG macros */
   DEBUG_ERROR("=== ASSERTION FAILED ===");
   DEBUG_ERROR("File: %s", file);
   DEBUG_ERROR("Line: %lu", line);
@@ -479,13 +499,14 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* 调用错误处理函数 */
   Error_Handler();
 #else
-  /* BOOTLOADER mode - minimal assert handling */
-  (void)file;
-  (void)line;
-  while(1)
-  {
-    /* Halt execution on assertion failure */
-  }
+  /* APP mode - use SHELL_LOG macros */
+  SHELL_LOG_SYS_ERROR("=== ASSERTION FAILED ===");
+  SHELL_LOG_SYS_ERROR("File: %s", file);
+  SHELL_LOG_SYS_ERROR("Line: %lu", line);
+  SHELL_LOG_SYS_ERROR("Check your code parameters!");
+  
+  /* 调用错误处理函数 */
+  Error_Handler();
 #endif
   /* USER CODE END 6 */
 }

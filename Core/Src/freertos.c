@@ -25,7 +25,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "shell_log.h"  /* SHELL_LOG_TASK_xxx macros */
+#include "fatfs_init.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -119,10 +120,19 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
    configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
    called if a stack overflow is detected. */
    
+#if defined(BOOTLOADER)
+   /* BOOTLOADER 模式使用 DEBUG_xxx 宏 */
    DEBUG_ERROR("=== STACK OVERFLOW DETECTED ===");
    DEBUG_ERROR("Task Name: %s", pcTaskName ? (char*)pcTaskName : "Unknown");
    DEBUG_ERROR("Task Handle: 0x%08X", (uint32_t)xTask);
    DEBUG_ERROR("Free Heap: %d bytes", (int)xPortGetFreeHeapSize());
+#else
+   /* APP 模式使用 SHELL_LOG_xxx 宏 */
+   SHELL_LOG_TASK_ERROR("=== STACK OVERFLOW DETECTED ===");
+   SHELL_LOG_TASK_ERROR("Task Name: %s", pcTaskName ? (char*)pcTaskName : "Unknown");
+   SHELL_LOG_TASK_ERROR("Task Handle: 0x%08X", (uint32_t)xTask);
+   SHELL_LOG_TASK_ERROR("Free Heap: %d bytes", (int)xPortGetFreeHeapSize());
+#endif
    
    /* 系统将会崩溃，调用错误处理函数 */
    Error_Handler();
@@ -143,9 +153,17 @@ void vApplicationMallocFailedHook(void)
    to query the size of free heap space that remains (although it does not
    provide information on how the remaining heap might be fragmented). */
    
+#if defined(BOOTLOADER)
+   /* BOOTLOADER 模式使用 DEBUG_xxx 宏 */
    DEBUG_ERROR("=== MEMORY ALLOCATION FAILED ===");
    DEBUG_ERROR("Free Heap Size: %d bytes", (int)xPortGetFreeHeapSize());
    DEBUG_ERROR("Minimum Ever Free Heap: %d bytes", (int)xPortGetMinimumEverFreeHeapSize());
+#else
+   /* APP 模式使用 SHELL_LOG_xxx 宏 */
+   SHELL_LOG_TASK_ERROR("=== MEMORY ALLOCATION FAILED ===");
+   SHELL_LOG_TASK_ERROR("Free Heap Size: %d bytes", (int)xPortGetFreeHeapSize());
+   SHELL_LOG_TASK_ERROR("Minimum Ever Free Heap: %d bytes", (int)xPortGetMinimumEverFreeHeapSize());
+#endif
    
    /* 系统将会崩溃，调用错误处理函数 */
    Error_Handler();
@@ -224,7 +242,7 @@ void StartDefaultTask(void *argument)
   /* Initialize debug system */
   debug_init();
   
-  DEBUG_INFO("FreeRTOS started (heap: %d bytes)", (int)xPortGetFreeHeapSize());
+  SHELL_LOG_TASK_INFO("FreeRTOS started (heap: %d bytes)", (int)xPortGetFreeHeapSize());
   
   /* Wait for system stabilization */
   osDelay(100);
@@ -232,9 +250,9 @@ void StartDefaultTask(void *argument)
   /* Initialize FatFs in RTOS task context (required for DMA/interrupts) */
   extern int fatfs_init(void);
   if (fatfs_init() == 0) {
-      DEBUG_INFO("FatFs OK");
+      SHELL_LOG_FATFS_INFO("FatFs OK");
   } else {
-      DEBUG_ERROR("FatFs init failed");
+      SHELL_LOG_FATFS_ERROR("FatFs init failed");
   }
   
   
@@ -251,7 +269,7 @@ void StartDefaultTask(void *argument)
     
     /* 每10秒打印一次状态信息 */
     if (loop_count % 10 == 0) {
-      DEBUG_INFO("System running - Loop: %lu, Free Heap: %d bytes", 
+      SHELL_LOG_TASK_DEBUG("System running - Loop: %lu, Free Heap: %d bytes", 
                  loop_count / 1000, (int)xPortGetFreeHeapSize());
     }
     

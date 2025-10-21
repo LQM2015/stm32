@@ -18,6 +18,10 @@ extern "C" {
 /* 导出的全局文件系统对象 */
 extern FATFS SDFatFS;
 
+/* FatFs工作对象 - 用于Shell命令的文件操作 */
+extern FIL USERFile;      /* File object */
+extern char USERPath[4];  /* Logical drive path */
+
 /* 函数声明 */
 int fatfs_init(void);
 void fatfs_deinit(void);

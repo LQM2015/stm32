@@ -1,10 +1,10 @@
-#include "sdram_loader.h"
-#include "debug.h"
+﻿#include "sdram_loader.h"
 #include "fmc.h"
 #include "bsp_sdram.h"
 #include "mdma.h"
 #include <string.h>
 #include "stm32h7xx.h"
+#include "shell_log.h"  /* APP uses SHELL_LOG_MEMORY_xxx macros */
 
 static HAL_StatusTypeDef mdma_copy_blocks(uint32_t src, uint32_t dst, uint32_t size_bytes)
 {
@@ -23,7 +23,7 @@ static HAL_StatusTypeDef mdma_copy_blocks(uint32_t src, uint32_t dst, uint32_t s
   hmdma.Init.SourceBurst = MDMA_SOURCE_BURST_32BEATS;
   hmdma.Init.DestBurst = MDMA_DEST_BURST_32BEATS;
   if (HAL_MDMA_Init(&hmdma) != HAL_OK) {
-    DEBUG_ERROR("MDMA init failed for SDRAM loader");
+    SHELL_LOG_MEMORY_ERROR("MDMA init failed for SDRAM loader");
     return HAL_ERROR;
   }
 
@@ -53,13 +53,13 @@ void SDRAM_InitAndLoadSections(void)
   __disable_irq();
   MX_FMC_Init();
   __enable_irq();
-  DEBUG_INFO("FMC initialized by SDRAM loader");
+  SHELL_LOG_MEMORY_INFO("FMC initialized by SDRAM loader");
 
   if (BSP_SDRAM_Initialization_Sequence(&hsdram1) != SDRAM_OK) {
-    DEBUG_ERROR("SDRAM initialization failed in loader");
+    SHELL_LOG_MEMORY_ERROR("SDRAM initialization failed in loader");
     return;
   }
-  DEBUG_INFO("SDRAM init OK. Base: 0x%08X, Size: %d MB", SDRAM_BANK_ADDR, SDRAM_SIZE/1024/1024);
+  SHELL_LOG_MEMORY_INFO("SDRAM init OK. Base: 0x%08X, Size: %d MB", SDRAM_BANK_ADDR, SDRAM_SIZE/1024/1024);
 
   /* 从链接脚本导入拷贝符号 */
   extern uint32_t __sdram_text_load, __sdram_text_start, __sdram_text_end;
@@ -70,16 +70,16 @@ void SDRAM_InitAndLoadSections(void)
   /* 使用MDMA进行搬运 */
   if (text_size) {
     if (mdma_copy_blocks((uint32_t)&__sdram_text_load, (uint32_t)&__sdram_text_start, text_size) != HAL_OK) {
-      DEBUG_ERROR("MDMA copy .text_sdram failed");
+      SHELL_LOG_MEMORY_ERROR("MDMA copy .text_sdram failed");
     } else {
-      DEBUG_INFO("MDMA copied .text_sdram: %lu bytes", text_size);
+      SHELL_LOG_MEMORY_INFO("MDMA copied .text_sdram: %lu bytes", text_size);
     }
   }
   if (rodata_size) {
     if (mdma_copy_blocks((uint32_t)&__sdram_rodata_load, (uint32_t)&__sdram_rodata_start, rodata_size) != HAL_OK) {
-      DEBUG_ERROR("MDMA copy .rodata_sdram failed");
+      SHELL_LOG_MEMORY_ERROR("MDMA copy .rodata_sdram failed");
     } else {
-      DEBUG_INFO("MDMA copied .rodata_sdram: %lu bytes", rodata_size);
+      SHELL_LOG_MEMORY_INFO("MDMA copied .rodata_sdram: %lu bytes", rodata_size);
     }
   }
 
@@ -98,5 +98,5 @@ void SDRAM_InitAndLoadSections(void)
   SCB_InvalidateICache();
   __DSB();
   __ISB();
-  DEBUG_INFO("SDRAM loader completed. Caches updated");
+  SHELL_LOG_MEMORY_INFO("SDRAM loader completed. Caches updated");
 }
