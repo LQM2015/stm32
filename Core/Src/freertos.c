@@ -262,17 +262,17 @@ void StartDefaultTask(void *argument)
   SHELL_LOG_TASK_INFO("DefaultTask: Initialization complete");
   
   /* Infinite loop */
-  uint32_t loop_count = 0;
+  //uint32_t loop_count = 0;
   
   for(;;)
   {
-    loop_count++;
+   //  loop_count++;
     
-    /* 每10秒打印一次状态信息 */
-    if (loop_count % 10 == 0) {
-      SHELL_LOG_TASK_DEBUG("DefaultTask: Running - Loop: %lu, Free Heap: %d bytes", 
-                 loop_count / 10, (int)xPortGetFreeHeapSize());
-    }
+   //  /* 每10秒打印一次状态信息 */
+   //  if (loop_count % 10 == 0) {
+   //    SHELL_LOG_TASK_DEBUG("DefaultTask: Running - Loop: %lu, Free Heap: %d bytes", 
+   //               loop_count / 10, (int)xPortGetFreeHeapSize());
+   //  }
     
     osDelay(1000);
   }
