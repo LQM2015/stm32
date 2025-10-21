@@ -45,7 +45,7 @@
 #include "bsp_sdram.h"
 #include "fatfs_init.h"
 #include "shell_log.h"  /* APP uses SHELL_LOG_xxx macros */
-/* NOTE: APP主程序不再使用 debug.h，彻底使用 shell_log.h */
+#include "sdram_demo.h"
 #endif  /* !BOOTLOADER */
 /* USER CODE END Includes */
 
@@ -215,6 +215,10 @@ int main(void)
   
   /* 调用SDRAM初始化与代码搬运函数 */
   SDRAM_InitAndLoadSections();
+
+    /* 运行SDRAM中的示例函数 */
+  SDRAM_DemoFunction();
+  SDRAM_DemoPrintBanner();
   
   MX_SDMMC1_SD_Init();
   /* USER CODE BEGIN 2 */
@@ -224,12 +228,6 @@ int main(void)
   SHELL_LOG_SYS_INFO("APP is running from external Flash at 0x90000000");
   SHELL_LOG_SYS_INFO("Bootloader handoff successful!");
   SHELL_LOG_SYS_INFO("Starting main function initialization...");
-  
-  /* 运行SDRAM中的示例函数 */
-  extern void SDRAM_DemoFunction(void);
-  extern void SDRAM_DemoPrintBanner(void);
-  SDRAM_DemoFunction();
-  SDRAM_DemoPrintBanner();
 
   /* USER CODE END 2 */
 

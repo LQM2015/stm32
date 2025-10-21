@@ -71,7 +71,8 @@ SECTIONS
   {
     . = ALIGN(4);
     *(.text)           /* .text sections (code) */
-    *(.text*)          /* .text* sections (code) */
+    /* Only match .text.xxx (with dot), not .text_xxx (with underscore) */
+    *(.text.*)
     *(.glue_7)         /* glue arm to thumb code */
     *(.glue_7t)        /* glue thumb to arm code */
     *(.eh_frame)
@@ -88,7 +89,8 @@ SECTIONS
   {
     . = ALIGN(4);
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
-    *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
+    /* Only match .rodata.xxx (with dot), not .rodata_xxx (with underscore) */
+    *(.rodata.*)
     
     /* Shell command section - for Letter Shell command registration */
     . = ALIGN(4);

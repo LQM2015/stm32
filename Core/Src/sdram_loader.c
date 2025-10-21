@@ -22,6 +22,8 @@ static HAL_StatusTypeDef mdma_copy_blocks(uint32_t src, uint32_t dst, uint32_t s
   hmdma.Init.BufferTransferLength = 128; /* 128-beat缓冲，提高突发效率 */
   hmdma.Init.SourceBurst = MDMA_SOURCE_BURST_32BEATS;
   hmdma.Init.DestBurst = MDMA_DEST_BURST_32BEATS;
+  hmdma.Init.SourceBlockAddressOffset = 0; /* 单次块传输，不需要偏移 */
+  hmdma.Init.DestBlockAddressOffset = 0;   /* 单次块传输，不需要偏移 */
   if (HAL_MDMA_Init(&hmdma) != HAL_OK) {
     SHELL_LOG_MEMORY_ERROR("MDMA init failed for SDRAM loader");
     return HAL_ERROR;
