@@ -1,4 +1,4 @@
-﻿/* USER CODE BEGIN Header */
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -30,22 +30,23 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "dma.h"
-#include "fatfs.h"
 #include "mdma.h"
 #include "quadspi.h"
 #include "sdmmc.h"
 #include "usart.h"
 #include "gpio.h"
 #include "fmc.h"
-#include <string.h>
-#include "sdram_loader.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "fatfs.h"
 #include "bsp_sdram.h"
 #include "fatfs_init.h"
 #include "shell_log.h"  /* APP uses SHELL_LOG_xxx macros */
+#include "shell_port.h"
 #include "sdram_demo.h"
+#include <string.h>
+#include "sdram_loader.h"
 #endif  /* !BOOTLOADER */
 /* USER CODE END Includes */
 
@@ -200,8 +201,9 @@ int main(void)
   MX_MDMA_Init();
   MX_DMA_Init();
   MX_USART1_UART_Init();
+
+  /* USER CODE BEGIN 2 */
     /* 初始化 Letter Shell 终端 */
-  extern void shell_init(void);
   shell_init();
   SHELL_LOG_SYS_INFO("Letter Shell initialized successfully");
   
@@ -219,8 +221,6 @@ int main(void)
     /* 运行SDRAM中的示例函数 */
   SDRAM_DemoFunction();
   SDRAM_DemoPrintBanner();
-  
-  /* USER CODE BEGIN 2 */
   /* 初始化调试输出功能 */
   SHELL_LOG_SYS_INFO("Letter Shell initialized successfully");
   SHELL_LOG_SYS_INFO("=== APP SUCCESSFULLY STARTED ===");
@@ -231,13 +231,10 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Init scheduler */
-  SHELL_LOG_SYS_INFO("Initializing FreeRTOS kernel...");
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
-  SHELL_LOG_SYS_INFO("Creating FreeRTOS tasks...");
   MX_FREERTOS_Init();
 
   /* Start scheduler */
-  SHELL_LOG_SYS_INFO("Starting FreeRTOS scheduler...");
   osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
@@ -286,7 +283,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 5;
   RCC_OscInitStruct.PLL.PLLN = 192;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLQ = 5;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
@@ -401,13 +398,10 @@ void MPU_Config(void)
   MPU_InitStruct.Number = MPU_REGION_NUMBER4;
   MPU_InitStruct.BaseAddress = 0xC0000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_32MB;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;  // 使用TEX Level1获得最佳性能
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
   MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
-  /* ✅ 启用写缓冲以提升SDRAM写入性能 */
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enables the MPU */

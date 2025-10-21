@@ -28,6 +28,7 @@
 #include "shell_log.h"  /* SHELL_LOG_TASK_xxx macros */
 #include "fatfs_init.h"
 #include "sdmmc.h"
+#include "spi.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,15 +54,21 @@
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 1024 * 8,  // ✅ 增加到8KB，避免栈溢出
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-
 /* Definitions for fileSystemTask */
 osThreadId_t fileSystemTaskHandle;
 const osThreadAttr_t fileSystemTask_attributes = {
   .name = "fileSystemTask",
-  .stack_size = 1024 * 4,  // 4KB栈空间用于文件系统操作
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for bt2ispTask */
+osThreadId_t bt2ispTaskHandle;
+const osThreadAttr_t bt2ispTask_attributes = {
+  .name = "bt2ispTask",
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 
@@ -72,6 +79,7 @@ const osThreadAttr_t fileSystemTask_attributes = {
 
 void StartDefaultTask(void *argument);
 void StartFileSystemTask(void *argument);
+void StartBt2IspTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -228,10 +236,14 @@ void MX_FREERTOS_Init(void) {
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
   /* creation of fileSystemTask */
   fileSystemTaskHandle = osThreadNew(StartFileSystemTask, NULL, &fileSystemTask_attributes);
+
+  /* creation of bt2ispTask */
+  bt2ispTaskHandle = osThreadNew(StartBt2IspTask, NULL, &bt2ispTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -279,11 +291,13 @@ void StartDefaultTask(void *argument)
   /* USER CODE END StartDefaultTask */
 }
 
+/* USER CODE BEGIN Header_StartFileSystemTask */
 /**
-  * @brief  Function implementing the fileSystemTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
+* @brief Function implementing the fileSystemTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartFileSystemTask */
 void StartFileSystemTask(void *argument)
 {
   /* USER CODE BEGIN StartFileSystemTask */
@@ -321,6 +335,25 @@ void StartFileSystemTask(void *argument)
     osDelay(5000);  // 每5秒检查一次
   }
   /* USER CODE END StartFileSystemTask */
+}
+
+/* USER CODE BEGIN Header_StartBt2IspTask */
+/**
+* @brief Function implementing the bt2ispTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartBt2IspTask */
+void StartBt2IspTask(void *argument)
+{
+  /* USER CODE BEGIN StartBt2IspTask */
+   MX_SPI1_Init();
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartBt2IspTask */
 }
 
 /* Private application code --------------------------------------------------*/
