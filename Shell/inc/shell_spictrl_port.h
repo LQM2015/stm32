@@ -24,6 +24,70 @@ extern "C" {
 #include "cmsis_os2.h"
 
 /* =================================================================== */
+/* Debug Print Adaptation                                            */
+/* =================================================================== */
+
+/* Map TRACE macros to SHELL_LOG */
+#define TRACE_INFO(fmt, ...)    SHELL_LOG_USER_INFO(fmt, ##__VA_ARGS__)
+#define TRACE_ERROR(fmt, ...)   SHELL_LOG_USER_ERROR(fmt, ##__VA_ARGS__)
+#define TRACE_WARNING(fmt, ...) SHELL_LOG_USER_WARNING(fmt, ##__VA_ARGS__)
+#define TRACE_DEBUG(fmt, ...)   SHELL_LOG_USER_DEBUG(fmt, ##__VA_ARGS__)
+
+/* Generic TRACE macro - maps to INFO level */
+#define TRACE(level, fmt, ...)  SHELL_LOG_USER_INFO(fmt, ##__VA_ARGS__)
+
+/* Hex dump function */
+static inline void DUMP8_IMPL(const char *fmt, const uint8_t *data, size_t len)
+{
+    Shell *shell = shellGetCurrent();
+    if (shell && data) {
+        for (size_t i = 0; i < len; i++) {
+            shellPrint(shell, fmt, data[i]);
+        }
+        shellPrint(shell, "\r\n");
+    }
+}
+#define DUMP8(fmt, data, len) DUMP8_IMPL(fmt, data, len)
+
+/* =================================================================== */
+/* Shell Command Adaptation                                           */
+/* =================================================================== */
+
+/**
+ * @brief Get current shell instance
+ * @return Pointer to shell instance
+ */
+static inline Shell* platform_shell_get_current(void)
+{
+    return shellGetCurrent();
+}
+
+/**
+ * @brief Print string to shell
+ * @param shell Shell instance
+ * @param str String to print
+ */
+static inline void platform_shell_print(Shell *shell, const char *str)
+{
+    if (shell && str) {
+        shellPrint(shell, "%s", str);
+    }
+}
+
+/**
+ * @brief Print formatted string to shell
+ * @param shell Shell instance
+ * @param fmt Format string
+ * @param ... Arguments
+ */
+#define platform_shell_printf(shell, fmt, ...) \
+    do { \
+        if (shell) { \
+            shellPrint(shell, fmt, ##__VA_ARGS__); \
+        } \
+    } while(0)
+
+/* =================================================================== */
 /* SPI Interface Adaptation                                           */
 /* =================================================================== */
 
@@ -57,8 +121,51 @@ static inline int platform_spi_deinit(void)
  */
 static inline int platform_spi_transmit(const uint8_t *data, uint16_t size)
 {
-    HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi1, (uint8_t*)data, size, SPI_TIMEOUT_MS);
-    return (status == HAL_OK) ? 0 : -1;
+    // Debug: dump data RIGHT before HAL call
+    TRACE_INFO("platform_spi_transmit: addr=0x%08X, size=%d", (uint32_t)data, size);
+    if (size >= 20) {
+        TRACE_INFO("  Data: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                   data[0], data[1], data[2], data[3], data[4],
+                   data[5], data[6], data[7], data[8], data[9],
+                   data[10], data[11], data[12], data[13], data[14],
+                   data[15], data[16], data[17], data[18], data[19]);
+    }
+    
+    // 分配对齐的接收缓冲区（SPI全双工需要）
+    // 使用32字节对齐以满足DMA和Cache要求
+    #define RX_BUFFER_ALIGNED_SIZE (((size+31)/32)*32)
+    static uint8_t rx_buffer[512] __attribute__((aligned(32)));  // 最大512字节
+    
+    if (size > 512) {
+        TRACE_ERROR("platform_spi_transmit: size too large (%d > 512)", size);
+        return -1;
+    }
+    
+    // STM32H7 with D-Cache: Clean TX cache, Invalidate RX cache before DMA
+    SCB_CleanDCache_by_Addr((uint32_t*)data, size);
+    SCB_InvalidateDCache_by_Addr((uint32_t*)rx_buffer, RX_BUFFER_ALIGNED_SIZE);
+    
+    // 使用TransmitReceive_DMA（官方推荐方式）
+    HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_DMA(&hspi1, (uint8_t*)data, rx_buffer, size);
+    
+    if (status != HAL_OK) {
+        TRACE_ERROR("platform_spi_transmit: HAL_SPI_TransmitReceive_DMA failed, status=%d", status);
+        return -1;
+    }
+    
+    // 等待传输完成
+    uint32_t timeout = HAL_GetTick() + SPI_TIMEOUT_MS;
+    while (hspi1.State != HAL_SPI_STATE_READY) {
+        if (HAL_GetTick() > timeout) {
+            TRACE_ERROR("platform_spi_transmit: timeout waiting for SPI ready");
+            return -2;
+        }
+    }
+    
+    // Invalidate cache after DMA to ensure CPU reads fresh data
+    SCB_InvalidateDCache_by_Addr((uint32_t*)rx_buffer, RX_BUFFER_ALIGNED_SIZE);
+    
+    return 0;
 }
 
 /**
@@ -69,8 +176,49 @@ static inline int platform_spi_transmit(const uint8_t *data, uint16_t size)
  */
 static inline int platform_spi_receive(uint8_t *data, uint16_t size)
 {
-    HAL_StatusTypeDef status = HAL_SPI_Receive(&hspi1, data, size, SPI_TIMEOUT_MS);
-    return (status == HAL_OK) ? 0 : -1;
+    // 分配对齐的发送缓冲区（SPI全双工需要发送dummy数据）
+    static uint8_t tx_dummy[512] __attribute__((aligned(32))) = {0};  // 全0作为dummy
+    
+    if (size > 512) {
+        TRACE_ERROR("platform_spi_receive: size too large (%d > 512)", size);
+        return -1;
+    }
+    
+    // STM32H7 with D-Cache: Clean TX cache, Invalidate RX cache before DMA
+    SCB_CleanDCache_by_Addr((uint32_t*)tx_dummy, size);
+    SCB_InvalidateDCache_by_Addr((uint32_t*)data, size);
+    
+    // 使用TransmitReceive_DMA（官方推荐方式）
+    HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_DMA(&hspi1, tx_dummy, data, size);
+    
+    if (status != HAL_OK) {
+        TRACE_ERROR("platform_spi_receive: HAL_SPI_TransmitReceive_DMA failed, status=%d", status);
+        return -1;
+    }
+    
+    // 等待传输完成
+    uint32_t timeout = HAL_GetTick() + SPI_TIMEOUT_MS;
+    while (hspi1.State != HAL_SPI_STATE_READY) {
+        if (HAL_GetTick() > timeout) {
+            TRACE_ERROR("platform_spi_receive: timeout waiting for SPI ready");
+            return -2;
+        }
+    }
+    
+    // Invalidate cache after DMA to ensure CPU reads fresh data
+    SCB_InvalidateDCache_by_Addr((uint32_t*)data, size);
+    
+    // Dump received data
+    if (size >= 20) {
+        TRACE_INFO("SPI RX [%d bytes]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                   size,
+                   data[0], data[1], data[2], data[3], data[4],
+                   data[5], data[6], data[7], data[8], data[9],
+                   data[10], data[11], data[12], data[13], data[14],
+                   data[15], data[16], data[17], data[18], data[19]);
+    }
+    
+    return 0;
 }
 
 /**
@@ -84,11 +232,19 @@ static inline int platform_spi_transmit_receive(const uint8_t *tx_data,
                                                  uint8_t *rx_data, 
                                                  uint16_t size)
 {
+    // Flush TX cache and invalidate RX cache before DMA operation
+    SCB_CleanDCache_by_Addr((uint32_t*)tx_data, size);
+    SCB_InvalidateDCache_by_Addr((uint32_t*)rx_data, size);
+    
     HAL_StatusTypeDef status = HAL_SPI_TransmitReceive(&hspi1, 
                                                         (uint8_t*)tx_data, 
                                                         rx_data, 
                                                         size, 
                                                         SPI_TIMEOUT_MS);
+    
+    // Invalidate RX cache after DMA to read fresh data
+    SCB_InvalidateDCache_by_Addr((uint32_t*)rx_data, size);
+    
     return (status == HAL_OK) ? 0 : -1;
 }
 
@@ -209,70 +365,6 @@ static inline int platform_file_exists(const char *path)
     FILINFO fno;
     return (f_stat(path, &fno) == FR_OK) ? 1 : 0;
 }
-
-/* =================================================================== */
-/* Debug Print Adaptation                                            */
-/* =================================================================== */
-
-/* Map TRACE macros to SHELL_LOG */
-#define TRACE_INFO(fmt, ...)    SHELL_LOG_USER_INFO(fmt, ##__VA_ARGS__)
-#define TRACE_ERROR(fmt, ...)   SHELL_LOG_USER_ERROR(fmt, ##__VA_ARGS__)
-#define TRACE_WARNING(fmt, ...) SHELL_LOG_USER_WARNING(fmt, ##__VA_ARGS__)
-#define TRACE_DEBUG(fmt, ...)   SHELL_LOG_USER_DEBUG(fmt, ##__VA_ARGS__)
-
-/* Generic TRACE macro - maps to INFO level */
-#define TRACE(level, fmt, ...)  SHELL_LOG_USER_INFO(fmt, ##__VA_ARGS__)
-
-/* Hex dump function */
-static inline void DUMP8_IMPL(const char *fmt, const uint8_t *data, size_t len)
-{
-    Shell *shell = shellGetCurrent();
-    if (shell && data) {
-        for (size_t i = 0; i < len; i++) {
-            shellPrint(shell, fmt, data[i]);
-        }
-        shellPrint(shell, "\r\n");
-    }
-}
-#define DUMP8(fmt, data, len) DUMP8_IMPL(fmt, data, len)
-
-/* =================================================================== */
-/* Shell Command Adaptation                                           */
-/* =================================================================== */
-
-/**
- * @brief Get current shell instance
- * @return Pointer to shell instance
- */
-static inline Shell* platform_shell_get_current(void)
-{
-    return shellGetCurrent();
-}
-
-/**
- * @brief Print string to shell
- * @param shell Shell instance
- * @param str String to print
- */
-static inline void platform_shell_print(Shell *shell, const char *str)
-{
-    if (shell && str) {
-        shellPrint(shell, "%s", str);
-    }
-}
-
-/**
- * @brief Print formatted string to shell
- * @param shell Shell instance
- * @param fmt Format string
- * @param ... Arguments
- */
-#define platform_shell_printf(shell, fmt, ...) \
-    do { \
-        if (shell) { \
-            shellPrint(shell, fmt, ##__VA_ARGS__); \
-        } \
-    } while(0)
 
 /* =================================================================== */
 /* Memory Allocation Adaptation                                       */

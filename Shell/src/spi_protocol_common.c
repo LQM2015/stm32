@@ -127,6 +127,16 @@ int spi_protocol_send_frame(const ctl_fr_t *frame)
         return -2;
     }
     
+    // Dump first 20 bytes of send data
+    const uint8_t *send_data = (const uint8_t*)frame;
+    size_t dump_len = (sizeof(ctl_fr_t) < 20) ? sizeof(ctl_fr_t) : 20;
+    TRACE_INFO("SPI TX [%d bytes]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+               sizeof(ctl_fr_t),
+               send_data[0], send_data[1], send_data[2], send_data[3], send_data[4],
+               send_data[5], send_data[6], send_data[7], send_data[8], send_data[9],
+               send_data[10], send_data[11], send_data[12], send_data[13], send_data[14],
+               send_data[15], send_data[16], send_data[17], send_data[18], send_data[19]);
+    
     int ret = platform_spi_transmit((const uint8_t*)frame, sizeof(ctl_fr_t));
     if (ret != 0) {
         TRACE_ERROR("SPI transmit failed: %d", ret);
@@ -159,6 +169,15 @@ int spi_protocol_receive_frame(ctl_fr_t *frame)
         TRACE_ERROR("SPI receive failed: %d", ret);
         return -3;
     }
+    
+    // Dump first 20 bytes of received data
+    const uint8_t *recv_data = (const uint8_t*)frame;
+    TRACE_INFO("SPI RX [%d bytes]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+               sizeof(ctl_fr_t),
+               recv_data[0], recv_data[1], recv_data[2], recv_data[3], recv_data[4],
+               recv_data[5], recv_data[6], recv_data[7], recv_data[8], recv_data[9],
+               recv_data[10], recv_data[11], recv_data[12], recv_data[13], recv_data[14],
+               recv_data[15], recv_data[16], recv_data[17], recv_data[18], recv_data[19]);
     
     // Verify FCS
     if (!spi_protocol_verify_fcs(frame)) {
