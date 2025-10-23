@@ -124,7 +124,7 @@
 /**
  * @brief shell格式化输出的缓冲大小
  */
-#define     SHELL_PRINT_BUFFER          256
+#define     SHELL_PRINT_BUFFER          1024
 
 /**
  * @brief 使用函数签名

@@ -312,7 +312,9 @@ static size_t shellExtParseNumber(char *string)
     if (type == NUM_TYPE_FLOAT && devide != 0)
     {
         valueFloat = (float)valueInt / devide * sign;
-        return *(size_t *)(&valueFloat);
+        size_t result;
+        memcpy(&result, &valueFloat, sizeof(size_t));
+        return result;
     }
     else
     {

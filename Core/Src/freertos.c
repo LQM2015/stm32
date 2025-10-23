@@ -347,7 +347,7 @@ void StartFileSystemTask(void *argument)
 void StartBt2IspTask(void *argument)
 {
   /* USER CODE BEGIN StartBt2IspTask */
-   MX_SPI1_Init();
+   //MX_SPI1_Init();
   /* Infinite loop */
   for(;;)
   {
