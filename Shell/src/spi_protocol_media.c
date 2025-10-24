@@ -33,7 +33,6 @@ static int execute_media_protocol(business_type_t business_type)
     int ret;
     const char *business_name;
     uint32_t business_data;
-    uint32_t business_ack;
     uint32_t param_cmd;
     uint32_t success_cmd;
     
@@ -54,52 +53,6 @@ static int execute_media_protocol(business_type_t business_type)
     
     TRACE_INFO("%s Protocol: Starting execution...", business_name);
     
-    /* ===== Step 1: Send Linux handshake [0xFE, 0x01] ===== */
-    ret = spi_protocol_build_frame(&send_frame, NORMAL_SPI_CMD, 
-                                    g_linux_handshake_data, 
-                                    2 * sizeof(uint32_t), 
-                                    ++g_media_sequence_counter);
-    if (ret != 0) {
-        TRACE_ERROR("%s Protocol: Failed to build Linux handshake frame", business_name);
-        return -1;
-    }
-    
-    ret = spi_protocol_send_frame(&send_frame);
-    if (ret != 0) {
-        TRACE_ERROR("%s Protocol: Failed to send Linux handshake", business_name);
-        return -2;
-    }
-    
-    TRACE_INFO("%s Protocol: Step 1 - Sent Linux handshake [0x%02X, 0x%02X], seq=%d", 
-               business_name, COMMON_LINUX_HANDSHAKE, COMMON_HANDSHAKE_DATA, 
-               send_frame.seqctl);
-    
-    /* ===== Step 2: Receive business confirm [0xFD, 0x0A/0x03] ===== */
-    platform_delay_ms(50);  // Short delay waiting for response
-    
-    ret = spi_protocol_receive_frame(&recv_frame);
-    if (ret != 0) {
-        TRACE_ERROR("%s Protocol: Failed to receive business confirm", business_name);
-        return -3;
-    }
-    
-    if (!spi_protocol_validate_frame(&recv_frame, COMMON_BUSINESS_CONFIRM, 2 * sizeof(uint32_t))) {
-        TRACE_ERROR("%s Protocol: Invalid business confirm frame", business_name);
-        return -4;
-    }
-    
-    // Verify business type
-    uint32_t recv_data[2];
-    memcpy(recv_data, recv_frame.data, sizeof(uint32_t) * 2);
-    
-    if (recv_data[1] != business_ack) {
-        TRACE_ERROR("%s Protocol: Business ACK mismatch, expected 0x%02X, got 0x%02X", 
-                    business_name, business_ack, recv_data[1]);
-        return -5;
-    }
-    
-    TRACE_INFO("%s Protocol: Step 2 - Received business confirm [0x%02X, 0x%02X]", 
-               business_name, recv_data[0], recv_data[1]);
     
     /* ===== Step 3: Send business handshake [0xFE, 0x0A/0x03] ===== */
     uint32_t business_handshake_data[2] = {COMMON_LINUX_HANDSHAKE, business_data};
@@ -216,6 +169,7 @@ int spi_protocol_media_auto_execute(void)
     TRACE_INFO("Media Protocol: Starting auto-detection...");
     
     /* ===== Step 1: Send Linux handshake ===== */
+    TRACE_INFO("Media Protocol: Step 1 - Send Linux handshake");
     ret = spi_protocol_build_frame(&send_frame, NORMAL_SPI_CMD, 
                                     g_linux_handshake_data, 
                                     2 * sizeof(uint32_t), 
@@ -235,7 +189,8 @@ int spi_protocol_media_auto_execute(void)
     
     /* ===== Step 2: Receive business confirm and detect type ===== */
     platform_delay_ms(50);
-    
+
+    TRACE_INFO("Media Protocol: Step 2 - Waiting for business confirm...");
     ret = spi_protocol_receive_frame(&recv_frame);
     if (ret != 0) {
         TRACE_ERROR("Media Protocol: Failed to receive business confirm");
