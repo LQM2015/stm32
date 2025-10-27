@@ -114,7 +114,7 @@ static inline int platform_spi_deinit(void)
 }
 
 /**
- * @brief Transmit data via SPI
+ * @brief Transmit data via SPI (只发不收)
  * @param data Pointer to data buffer
  * @param size Number of bytes to transmit
  * @return 0 on success, negative on error
@@ -131,25 +131,14 @@ static inline int platform_spi_transmit(const uint8_t *data, uint16_t size)
                    data[15], data[16], data[17], data[18], data[19]);
     }
     
-    // 分配对齐的接收缓冲区（SPI全双工需要）
-    // 使用32字节对齐以满足DMA和Cache要求
-    #define RX_BUFFER_ALIGNED_SIZE (((size+31)/32)*32)
-    static uint8_t rx_buffer[512] __attribute__((aligned(32)));  // 最大512字节
-    
-    if (size > 512) {
-        TRACE_ERROR("platform_spi_transmit: size too large (%d > 512)", size);
-        return -1;
-    }
-    
-    // STM32H7 with D-Cache: Clean TX cache, Invalidate RX cache before DMA
+    // STM32H7 with D-Cache: Clean TX cache before DMA
     SCB_CleanDCache_by_Addr((uint32_t*)data, size);
-    SCB_InvalidateDCache_by_Addr((uint32_t*)rx_buffer, RX_BUFFER_ALIGNED_SIZE);
     
-    // 使用TransmitReceive_DMA（官方推荐方式）
-    HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_DMA(&hspi1, (uint8_t*)data, rx_buffer, size);
+    // 只发送，不接收
+    HAL_StatusTypeDef status = HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)data, size);
     
     if (status != HAL_OK) {
-        TRACE_ERROR("platform_spi_transmit: HAL_SPI_TransmitReceive_DMA failed, status=%d", status);
+        TRACE_ERROR("platform_spi_transmit: HAL_SPI_Transmit_DMA failed, status=%d", status);
         return -1;
     }
     
@@ -162,37 +151,25 @@ static inline int platform_spi_transmit(const uint8_t *data, uint16_t size)
         }
     }
     
-    // Invalidate cache after DMA to ensure CPU reads fresh data
-    SCB_InvalidateDCache_by_Addr((uint32_t*)rx_buffer, RX_BUFFER_ALIGNED_SIZE);
-    
     return 0;
 }
 
 /**
- * @brief Receive data via SPI
+ * @brief Receive data via SPI (只收不发)
  * @param data Pointer to receive buffer
  * @param size Number of bytes to receive
  * @return 0 on success, negative on error
  */
 static inline int platform_spi_receive(uint8_t *data, uint16_t size)
 {
-    // 分配对齐的发送缓冲区（SPI全双工需要发送dummy数据）
-    static uint8_t tx_dummy[512] __attribute__((aligned(32))) = {0};  // 全0作为dummy
-    
-    if (size > 512) {
-        TRACE_ERROR("platform_spi_receive: size too large (%d > 512)", size);
-        return -1;
-    }
-    
-    // STM32H7 with D-Cache: Clean TX cache, Invalidate RX cache before DMA
-    SCB_CleanDCache_by_Addr((uint32_t*)tx_dummy, size);
+    // STM32H7 with D-Cache: Invalidate RX cache before DMA
     SCB_InvalidateDCache_by_Addr((uint32_t*)data, size);
     
-    // 使用TransmitReceive_DMA（官方推荐方式）
-    HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_DMA(&hspi1, tx_dummy, data, size);
+    // 只接收，不发送
+    HAL_StatusTypeDef status = HAL_SPI_Receive_DMA(&hspi1, data, size);
     
     if (status != HAL_OK) {
-        TRACE_ERROR("platform_spi_receive: HAL_SPI_TransmitReceive_DMA failed, status=%d", status);
+        TRACE_ERROR("platform_spi_receive: HAL_SPI_Receive_DMA failed, status=%d", status);
         return -1;
     }
     

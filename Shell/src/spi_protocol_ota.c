@@ -264,7 +264,7 @@ bool spi_protocol_ota_check_package_exist(uint32_t ota_size, const char *ota_nam
     // Compare
     bool name_match = (strcmp(ota_name, filename) == 0);
     bool size_match = (file_size == ota_size);
-    
+    TRACE_INFO("ORIGINAL NAME:%s size:%d", filename, file_size);
     TRACE_INFO("OTA: Package check - name=%s, size=%s", 
                name_match ? "MATCH" : "MISMATCH",
                size_match ? "MATCH" : "MISMATCH");
@@ -297,7 +297,7 @@ int spi_protocol_ota_upgrade_execute(void)
     {
         // 发送空包 [0x00, 0x00]
         uint32_t empty_data[2] = {OTA_EMPTY_CMD, OTA_EMPTY_DATA};
-        ret = spi_protocol_build_frame(&send_frame, SPI_CMD_NORMAL, empty_data, 
+        ret = spi_protocol_build_frame(&send_frame, NORMAL_SPI_CMD, empty_data, 
                                       2*sizeof(uint32_t), ++g_ota_sequence_counter);
         if (ret != 0) {
             TRACE_ERROR("spictrl: %s Protocol: Failed to build empty frame", protocol_name);
@@ -364,7 +364,7 @@ int spi_protocol_ota_upgrade_execute(void)
                         uint32_t response_buffer[sizeof(ota_response_t) / sizeof(uint32_t) + 1] = {0};
                         memcpy(response_buffer, &ota_response, sizeof(ota_response));
                         
-                        ret = spi_protocol_build_frame(&send_frame, SPI_CMD_NORMAL, response_buffer, 
+                        ret = spi_protocol_build_frame(&send_frame, NORMAL_SPI_CMD, response_buffer, 
                                                       sizeof(ota_response), ++g_ota_sequence_counter);
                         if (ret != 0) {
                             TRACE_ERROR("spictrl: %s Protocol: Failed to build OTA response frame", protocol_name);
@@ -417,7 +417,7 @@ int spi_protocol_ota_upgrade_execute(void)
             uint32_t boot_buffer[sizeof(ota_response_t) / sizeof(uint32_t) + 1] = {0};
             memcpy(boot_buffer, &boot_command, sizeof(boot_command));
             
-            ret = spi_protocol_build_frame(&send_frame, SPI_CMD_NORMAL, boot_buffer, 
+            ret = spi_protocol_build_frame(&send_frame, NORMAL_SPI_CMD, boot_buffer, 
                                           sizeof(boot_command), ++g_ota_sequence_counter);
             if (ret != 0) {
                 TRACE_ERROR("spictrl: %s Protocol: Failed to build OTA boot command frame", protocol_name);
@@ -432,7 +432,12 @@ int spi_protocol_ota_upgrade_execute(void)
             
             TRACE_INFO("spictrl: %s Protocol: Step 9 - Sent OTA boot command [0x%02X, 0x%02X, 0x%02X, 0x%02X] to bes2700", 
                       protocol_name, boot_command.cmd, boot_command.status, boot_command.subcmd, boot_command.result);
-            
+            platform_delay_ms(100);
+            ret = spi_protocol_receive_frame(&recv_frame);
+            if (ret != 0) {
+                TRACE_WARNING("spictrl: %s Protocol: Failed to receive second OTA business confirm, ret=%d", protocol_name, ret);
+                // 这里不直接返回错误，继续循环
+            }
             TRACE_INFO("spictrl: %s Protocol: OTA upgrade protocol completed successfully! bes2700 should restart into OTA boot mode.", protocol_name);
             TRACE_INFO("spictrl: %s Protocol: bes2700 will now enter OTA boot state for actual package reception", protocol_name);
             
@@ -770,6 +775,7 @@ int spi_protocol_ota_state_machine_process(void)
             // 尝试接收空包响应
             ret = spi_protocol_receive_frame(&recv_frame);
             if (ret == 0) {
+                // 检查是否为空包响应 [0x00, 0x00]
                 if (spi_protocol_validate_frame(&recv_frame, 0x00, 2)) {
                     g_ota_current_state = OTA_STATE_EMPTY_RESPONSE_WAIT;
                     TRACE_INFO("spictrl: OTA Protocol: Step 2 - Received empty response");
@@ -788,7 +794,7 @@ int spi_protocol_ota_state_machine_process(void)
                         }
                     }
                 } else {
-                    TRACE_WARNING("spictrl: OTA Protocol: Invalid empty response received");
+                    TRACE_WARNING("spictrl: OTA Protocol: Unexpected response received (not 0x00 or 0x09)");
                     ret = -1;
                 }
             }

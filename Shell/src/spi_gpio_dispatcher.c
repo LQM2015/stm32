@@ -317,14 +317,21 @@ static void dispatcher_thread_entry(void *argument)
         
         // Handle state machine timeout events for OTA transfer
         if (msg.event_type == SPI_EVENT_TIMEOUT) {
-            
             ota_protocol_state_t state = spi_protocol_ota_get_state();
             
-            if (state != OTA_STATE_IDLE && state != OTA_STATE_TRANSFER_COMPLETE) {
-                ret = spi_protocol_ota_state_machine_process();
-                if (ret != 0) {
-                    TRACE_WARNING("GPIO Dispatcher: State machine processing error, ret=%d", ret);
-                }
+            // Process state machine
+            ret = spi_protocol_ota_state_machine_process();
+            if (ret != 0) {
+                TRACE_WARNING("GPIO Dispatcher: State machine processing error, ret=%d", ret);
+            }
+            
+            // Check if transfer completed or failed
+            ota_protocol_state_t new_state = spi_protocol_ota_get_state();
+            if (new_state == OTA_STATE_TRANSFER_COMPLETE || 
+                (state != OTA_STATE_IDLE && new_state == OTA_STATE_IDLE && ret != 0)) {
+                // Transfer completed or error occurred, re-enable GPIO interrupt
+                HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+                TRACE_INFO("GPIO Dispatcher: OTA transfer finished, GPIO interrupt re-enabled");
             }
         }
     }
@@ -382,6 +389,11 @@ static int handle_ota_firmware_transfer(void)
     
     if (ret == 0) {
         TRACE_INFO("GPIO Dispatcher: OTA state machine initialized, starting transfer...");
+        
+        // Disable GPIO interrupt during OTA transfer to avoid interruption
+        HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+        TRACE_INFO("GPIO Dispatcher: GPIO interrupt disabled during OTA transfer");
+        
         // Trigger first state machine step via message queue
         gpio_event_msg_t msg;
         msg.event_type = SPI_EVENT_TIMEOUT;
