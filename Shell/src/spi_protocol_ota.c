@@ -652,9 +652,8 @@ int spi_protocol_ota_firmware_transfer_execute(void)
             // 校验返回的数据包
             OTA_FILE_DATA_T *recv_data = (OTA_FILE_DATA_T*)spi_buffer;
             
-            // 重新计算接收到的文件数据的CRC32
-            uint32_t recv_calculated_crc32 = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, 
-                                                                          SPICOMM_LINKLAYER_DATA_SIZE - 4);
+            // 重新计算接收到的文件数据的CRC32 (使用实际数据长度)
+            uint32_t recv_calculated_crc32 = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, data_len);
             
             // 校验接收到的包的数据完整性
             TRACE_DEBUG("Received data: %02x %02x %02x %02x...", 
@@ -663,8 +662,8 @@ int spi_protocol_ota_firmware_transfer_execute(void)
             
             if (recv_calculated_crc32 != recv_data->crc32) {
                 TRACE_WARNING("spictrl: %s Protocol: Received file data CRC32 verification failed, retransmission needed", protocol_name);
-                TRACE_WARNING("spictrl: %s Protocol: Calculated CRC32=0x%08X, Received CRC32=0x%08X", 
-                             protocol_name, recv_calculated_crc32, recv_data->crc32);
+                TRACE_WARNING("spictrl: %s Protocol: Calculated CRC32=0x%08X, Received CRC32=0x%08X (data_len=%d)", 
+                             protocol_name, recv_calculated_crc32, recv_data->crc32, data_len);
                 // 重发当前数据包
                 continue;
             }
@@ -889,8 +888,8 @@ int spi_protocol_ota_state_machine_process(void)
                             ret = platform_spi_receive(spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
                             if (ret == 0) {
                                 OTA_FILE_DATA_T *recv_data = (OTA_FILE_DATA_T*)spi_buffer;
-                                uint32_t recv_crc = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, 
-                                                                                 SPICOMM_LINKLAYER_DATA_SIZE - 4);
+                                // 使用实际数据长度计算 CRC32
+                                uint32_t recv_crc = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, data_len);
                                 
                                 if (recv_crc == recv_data->crc32) {
                                     g_ota_bytes_sent += data_len;
@@ -900,7 +899,7 @@ int spi_protocol_ota_state_machine_process(void)
                                                   progress, g_ota_bytes_sent, file_length);
                                     }
                                 } else {
-                                    TRACE_WARNING("spictrl: OTA Protocol: Data CRC verification failed, retransmission needed");
+                                    TRACE_WARNING("spictrl: OTA Protocol: Data CRC verification failed (data_len=%d)", data_len);
                                     ret = -1;
                                 }
                             }
