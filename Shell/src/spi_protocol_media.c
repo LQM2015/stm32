@@ -6,6 +6,7 @@
  */
 
 #include "spi_protocol_media.h"
+#include "spi_protocol_ota.h"
 #include <string.h>
 
 /* =================================================================== */
@@ -40,13 +41,11 @@ static int execute_media_protocol(business_type_t business_type)
     if (business_type == BUSINESS_TYPE_PHOTO) {
         business_name = "Photo";
         business_data = PHOTO_BUSINESS_DATA;
-        business_ack = PHOTO_BUSINESS_ACK;
         param_cmd = PHOTO_PARAM_CMD;
         success_cmd = PHOTO_SUCCESS_CMD;
     } else {
         business_name = "Video";
         business_data = VIDEO_BUSINESS_DATA;
-        business_ack = VIDEO_BUSINESS_ACK;
         param_cmd = VIDEO_PARAM_CMD;
         success_cmd = VIDEO_SUCCESS_CMD;
     }
@@ -213,8 +212,20 @@ int spi_protocol_media_auto_execute(void)
         detected_type = BUSINESS_TYPE_VIDEO;
         TRACE_INFO("Media Protocol: Detected VIDEO business (ack=0x%02X)", recv_data[1]);
     } else if (recv_data[1] == OTA_BUSINESS_ACK) {
-        TRACE_WARNING("Media Protocol: Detected OTA business, not supported in media protocol");
-        return -5;
+        // OTA upgrade protocol - switch to OTA handler
+        TRACE_INFO("Media Protocol: Detected OTA business (ack=0x%02X)", recv_data[1]);
+        TRACE_INFO("Media Protocol: Switching to OTA upgrade protocol handler...");
+        
+        // Call OTA upgrade protocol to instruct device to enter OTA boot mode
+        // Note: This continues from step 3 (already completed Linux handshake and OTA confirm)
+        ret = spi_protocol_ota_upgrade_execute();
+        if (ret == 0) {
+            TRACE_INFO("Media Protocol: OTA upgrade protocol completed successfully");
+            TRACE_INFO("Media Protocol: Remote device should now restart into OTA boot mode");
+        } else {
+            TRACE_ERROR("Media Protocol: OTA upgrade protocol failed, ret=%d", ret);
+        }
+        return ret;
     } else {
         TRACE_ERROR("Media Protocol: Unknown business type (ack=0x%02X)", recv_data[1]);
         return -6;

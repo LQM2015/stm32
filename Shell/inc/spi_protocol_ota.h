@@ -25,7 +25,7 @@ extern "C" {
 #define LWK_OTA_BIN_NAME_LEN         128
 
 /* OTA Package File Path - adjust according to your file system */
-#define OTA_PACKAGE_PATH             "0:/data/ota_package.bin"
+#define OTA_PACKAGE_PATH             "0:/Athlics_20251027141226.bin"
 
 /* OTA Protocol Commands */
 #define OTA_EMPTY_CMD                0x00  /*!< Empty frame command */
@@ -44,8 +44,6 @@ extern "C" {
 #define GPIO_SPI_STOP_EVENT          (1 << 1)  /*!< SPI stop event */
 #define GPIO_SPI_UBOOT_DET_EVENT     (1 << 2)  /*!< OTA boot detect event */
 #define SPI_EVENT_TIMEOUT            (1 << 3)  /*!< SPI timeout event */
-#define SPI_EVENT_TX_COMPLETE        (1 << 4)  /*!< SPI TX complete event */
-#define SPI_EVENT_RX_COMPLETE        (1 << 5)  /*!< SPI RX complete event */
 
 /* =================================================================== */
 /* OTA File Information Structures                                    */
@@ -108,19 +106,11 @@ typedef struct {
 } __attribute__((packed)) ota_response_t;
 
 /* =================================================================== */
-/* OTA Transfer Mode                                                  */
+/* OTA State Machine                                                  */
 /* =================================================================== */
 
 /**
- * @brief OTA transfer mode enumeration
- */
-typedef enum {
-    OTA_TRANSFER_MODE_BLOCKING = 0,      /*!< Blocking mode with delays */
-    OTA_TRANSFER_MODE_STATE_MACHINE = 1  /*!< State machine mode with timers */
-} ota_transfer_mode_t;
-
-/**
- * @brief OTA protocol state enumeration (for state machine mode)
+ * @brief OTA protocol state enumeration
  */
 typedef enum {
     OTA_STATE_IDLE = 0,
@@ -132,22 +122,6 @@ typedef enum {
     OTA_STATE_FILE_DATA_SENDING,
     OTA_STATE_TRANSFER_COMPLETE
 } ota_protocol_state_t;
-
-/* =================================================================== */
-/* OTA Configuration Functions                                        */
-/* =================================================================== */
-
-/**
- * @brief Set OTA transfer mode
- * @param mode Transfer mode (blocking or state machine)
- */
-void spi_protocol_ota_set_mode(ota_transfer_mode_t mode);
-
-/**
- * @brief Get current OTA transfer mode
- * @return Current transfer mode
- */
-ota_transfer_mode_t spi_protocol_ota_get_mode(void);
 
 /* =================================================================== */
 /* OTA File Operations                                                */
@@ -207,7 +181,7 @@ int spi_protocol_ota_upgrade_execute(void);
  * @brief Execute OTA firmware transfer protocol
  * 
  * This protocol transfers firmware packages to the remote device
- * already in OTA boot mode.
+ * already in OTA boot mode using state machine approach.
  * 
  * Protocol flow:
  * 1. Send upgrade lock [0x0A, 0x01, 0x03, 0x01]
@@ -220,18 +194,10 @@ int spi_protocol_ota_upgrade_execute(void);
  *      - Send file data chunks via spibuf[1028]
  *      - Receive confirmation for each chunk
  * 
+ * @note This function uses state machine mode for efficient non-blocking transfer
  * @return 0 on success, negative on error
  */
 int spi_protocol_ota_firmware_transfer_execute(void);
-
-/**
- * @brief Execute unified OTA transfer (auto-select mode)
- * 
- * Automatically uses blocking or state machine mode based on configuration
- * 
- * @return 0 on success, negative on error
- */
-int spi_protocol_ota_transfer_execute(void);
 
 /* =================================================================== */
 /* OTA State Machine (Non-blocking Mode)                             */

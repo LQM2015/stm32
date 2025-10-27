@@ -315,22 +315,15 @@ static void dispatcher_thread_entry(void *argument)
             }
         }
         
-        // Handle other events (for protocol modules)
-        if (msg.event_type == SPI_EVENT_TIMEOUT || 
-            msg.event_type == SPI_EVENT_TX_COMPLETE ||
-            msg.event_type == SPI_EVENT_RX_COMPLETE) {
+        // Handle state machine timeout events for OTA transfer
+        if (msg.event_type == SPI_EVENT_TIMEOUT) {
             
-            // Handle state machine events (for non-blocking OTA transfer)
-            if ((msg.event_type == SPI_EVENT_TIMEOUT || msg.event_type == SPI_EVENT_TX_COMPLETE) &&
-                spi_protocol_ota_get_mode() == OTA_TRANSFER_MODE_STATE_MACHINE) {
-                
-                ota_protocol_state_t state = spi_protocol_ota_get_state();
-                
-                if (state != OTA_STATE_IDLE && state != OTA_STATE_TRANSFER_COMPLETE) {
-                    ret = spi_protocol_ota_state_machine_process();
-                    if (ret != 0) {
-                        TRACE_WARNING("GPIO Dispatcher: State machine processing error, ret=%d", ret);
-                    }
+            ota_protocol_state_t state = spi_protocol_ota_get_state();
+            
+            if (state != OTA_STATE_IDLE && state != OTA_STATE_TRANSFER_COMPLETE) {
+                ret = spi_protocol_ota_state_machine_process();
+                if (ret != 0) {
+                    TRACE_WARNING("GPIO Dispatcher: State machine processing error, ret=%d", ret);
                 }
             }
         }
@@ -376,40 +369,26 @@ static int handle_photo_video_protocol(void)
  * @brief Handle OTA firmware transfer
  * 
  * This function is called when device is already in OTA boot mode.
- * It transfers the firmware package to the device.
+ * It transfers the firmware package using state machine approach.
  */
 static int handle_ota_firmware_transfer(void)
 {
     int ret;
     
-    TRACE_INFO("GPIO Dispatcher: Starting OTA firmware transfer...");
+    TRACE_INFO("GPIO Dispatcher: Starting OTA firmware transfer (state machine mode)...");
     
-    // Check transfer mode
-    ota_transfer_mode_t mode = spi_protocol_ota_get_mode();
+    // Initialize state machine and let event loop handle the transfer
+    ret = spi_protocol_ota_state_machine_init();
     
-    if (mode == OTA_TRANSFER_MODE_BLOCKING) {
-        // Blocking mode - execute immediately
-        ret = spi_protocol_ota_firmware_transfer_execute();
-        
-        if (ret == 0) {
-            TRACE_INFO("GPIO Dispatcher: OTA firmware transfer completed successfully");
-        } else {
-            TRACE_ERROR("GPIO Dispatcher: OTA firmware transfer failed, ret=%d", ret);
-        }
+    if (ret == 0) {
+        TRACE_INFO("GPIO Dispatcher: OTA state machine initialized, starting transfer...");
+        // Trigger first state machine step via message queue
+        gpio_event_msg_t msg;
+        msg.event_type = SPI_EVENT_TIMEOUT;
+        msg.timestamp = osKernelGetTickCount();
+        osMessageQueuePut(g_gpio_event_queue, &msg, 0, 100);
     } else {
-        // State machine mode - initialize and let event loop handle it
-        ret = spi_protocol_ota_state_machine_init();
-        
-        if (ret == 0) {
-            TRACE_INFO("GPIO Dispatcher: OTA state machine initialized, starting transfer...");
-            // Trigger first state machine step via message queue
-            gpio_event_msg_t msg;
-            msg.event_type = SPI_EVENT_TIMEOUT;
-            msg.timestamp = osKernelGetTickCount();
-            osMessageQueuePut(g_gpio_event_queue, &msg, 0, 100);
-        } else {
-            TRACE_ERROR("GPIO Dispatcher: Failed to initialize OTA state machine, ret=%d", ret);
-        }
+        TRACE_ERROR("GPIO Dispatcher: Failed to initialize OTA state machine, ret=%d", ret);
     }
     
     return ret;

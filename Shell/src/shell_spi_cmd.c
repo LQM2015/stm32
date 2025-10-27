@@ -29,7 +29,6 @@ static const char spi_cmd_help[] =
     "  spi media_auto        - Auto-detect and execute media protocol\r\n"
     "  spi ota_upgrade       - Execute OTA upgrade protocol\r\n"
     "  spi ota_transfer      - Execute OTA firmware transfer\r\n"
-    "  spi ota_mode [mode]   - Get/Set OTA transfer mode (0=blocking, 1=state_machine)\r\n"
     "  spi dispatcher <cmd>  - Control GPIO dispatcher\r\n"
     "\r\n"
     "Dispatcher Commands:\r\n"
@@ -43,7 +42,7 @@ static const char spi_cmd_help[] =
     "Protocol Flows:\r\n"
     "  Photo:  [0xFE,0x01] -> [0xFD,0x0A] -> [0xFE,0x0A] -> [0x31,params] -> [0x32,0x01]\r\n"
     "  Video:  [0xFE,0x01] -> [0xFD,0x03] -> [0xFE,0x03] -> [0x13,params] -> [0x14,0x01]\r\n"
-    "  OTA:    GPIO detection -> Upgrade -> Transfer firmware packages\r\n"
+    "  OTA:    GPIO detection -> Upgrade -> Transfer firmware (state machine mode)\r\n"
     "\r\n";
 
 /* =================================================================== */
@@ -131,37 +130,14 @@ static int cmd_spi(int argc, char *argv[])
     
     /* OTA firmware transfer */
     if (strcmp(subcmd, "ota_transfer") == 0) {
-        SHELL_LOG_USER_INFO("Executing OTA firmware transfer...");
-        int ret = spi_protocol_ota_transfer_execute();
+        SHELL_LOG_USER_INFO("Executing OTA firmware transfer (state machine mode)...");
+        int ret = spi_protocol_ota_firmware_transfer_execute();
         if (ret == 0) {
             SHELL_LOG_USER_INFO("OTA firmware transfer completed");
         } else {
             SHELL_LOG_USER_ERROR("OTA firmware transfer failed: %d", ret);
         }
         return ret;
-    }
-    
-    /* OTA mode */
-    if (strcmp(subcmd, "ota_mode") == 0) {
-        if (argc < 3) {
-            // Get current mode
-            ota_transfer_mode_t mode = spi_protocol_ota_get_mode();
-            SHELL_LOG_USER_INFO("Current OTA mode: %s", 
-                                (mode == OTA_TRANSFER_MODE_BLOCKING) ? "BLOCKING" : "STATE_MACHINE");
-            return 0;
-        }
-        
-        // Set mode
-        int mode_num = atoi(argv[2]);
-        if (mode_num < 0 || mode_num > 1) {
-            SHELL_LOG_USER_ERROR("Invalid mode: %d (should be 0 or 1)", mode_num);
-            return -1;
-        }
-        
-        spi_protocol_ota_set_mode((ota_transfer_mode_t)mode_num);
-        SHELL_LOG_USER_INFO("OTA mode set to %s", 
-                            (mode_num == 0) ? "BLOCKING" : "STATE_MACHINE");
-        return 0;
     }
     
     /* GPIO Dispatcher control */

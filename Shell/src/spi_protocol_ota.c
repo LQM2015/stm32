@@ -30,7 +30,6 @@ typedef struct {
 extern osMessageQueueId_t gpio_spi_event_queue;
 
 static uint32_t g_ota_sequence_counter = 3000;
-static ota_transfer_mode_t g_ota_transfer_mode = OTA_TRANSFER_MODE_STATE_MACHINE;
 
 /* File information cache */
 static OTA_FILE_INFO_T g_cached_ota_info = {0};
@@ -47,22 +46,6 @@ static osTimerId_t g_ota_state_timer_id = NULL;
 static uint32_t g_ota_retry_count = 0;
 static uint32_t g_ota_file_index = 0;
 static uint32_t g_ota_bytes_sent = 0;
-
-/* =================================================================== */
-/* OTA Configuration Functions                                        */
-/* =================================================================== */
-
-void spi_protocol_ota_set_mode(ota_transfer_mode_t mode)
-{
-    g_ota_transfer_mode = mode;
-    TRACE_INFO("OTA transfer mode set to %s", 
-               (mode == OTA_TRANSFER_MODE_BLOCKING) ? "BLOCKING" : "STATE_MACHINE");
-}
-
-ota_transfer_mode_t spi_protocol_ota_get_mode(void)
-{
-    return g_ota_transfer_mode;
-}
 
 /* =================================================================== */
 /* OTA File Operations                                                */
@@ -625,9 +608,6 @@ int spi_protocol_ota_firmware_transfer_execute(void)
                 osTimerStart(g_ota_state_timer_id, 100);
             }
             
-            // 可以添加事件等待逻辑
-            // uint32_t flags = osEventFlagsWait(gpio_spi_event_flags, SPI_EVENT_TIMEOUT, osFlagsWaitAny, osWaitForever);
-            
             // 读取文件数据
             int data_len = spi_protocol_ota_read_file_data(filename, bytes_sent, &ota_file_data);
             if (data_len <= 0) {
@@ -714,16 +694,6 @@ int spi_protocol_ota_firmware_transfer_execute(void)
     spi_protocol_ota_state_machine_deinit();
     
     return 0; // 成功完成OTA固件包传送流程
-}
-
-int spi_protocol_ota_transfer_execute(void)
-{
-    if (g_ota_transfer_mode == OTA_TRANSFER_MODE_BLOCKING) {
-        return spi_protocol_ota_firmware_transfer_execute();
-    } else {
-        // State machine mode
-        return spi_protocol_ota_state_machine_process();
-    }
 }
 
 /* =================================================================== */

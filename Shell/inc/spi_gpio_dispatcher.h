@@ -31,8 +31,6 @@ extern "C" {
 #define GPIO_SPI_STOP_EVENT          (1 << 1)  /*!< Stop dispatcher thread */
 #define GPIO_SPI_UBOOT_DET_EVENT     (1 << 2)  /*!< OTA boot mode detected */
 #define SPI_EVENT_TIMEOUT            (1 << 3)  /*!< Timeout event for state machine */
-#define SPI_EVENT_TX_COMPLETE        (1 << 4)  /*!< TX complete event */
-#define SPI_EVENT_RX_COMPLETE        (1 << 5)  /*!< RX complete event */
 
 /* =================================================================== */
 /* Dispatcher Configuration                                           */
