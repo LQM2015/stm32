@@ -236,6 +236,33 @@ void spi_gpio_dispatcher_irq_handler(uint16_t gpio_pin)
     }
 }
 
+int spi_gpio_dispatcher_trigger_ota_transfer(void)
+{
+    if (g_gpio_event_queue == NULL) {
+        TRACE_ERROR("GPIO Dispatcher: Not initialized");
+        return -1;
+    }
+    
+    if (g_dispatcher_thread_id == NULL) {
+        TRACE_ERROR("GPIO Dispatcher: Thread not running");
+        return -2;
+    }
+    
+    // Send OTA boot event to trigger firmware transfer
+    gpio_event_msg_t msg;
+    msg.event_type = GPIO_SPI_UBOOT_DET_EVENT;
+    msg.timestamp = osKernelGetTickCount();
+    
+    osStatus_t status = osMessageQueuePut(g_gpio_event_queue, &msg, 0, 100);
+    if (status != osOK) {
+        TRACE_ERROR("GPIO Dispatcher: Failed to send OTA transfer event, status=%d", status);
+        return -3;
+    }
+    
+    TRACE_INFO("GPIO Dispatcher: OTA firmware transfer event triggered");
+    return 0;
+}
+
 /* =================================================================== */
 /* Private Functions - Main Dispatcher Thread                        */
 /* =================================================================== */
@@ -332,6 +359,7 @@ static void dispatcher_thread_entry(void *argument)
                 // Transfer completed or error occurred, re-enable GPIO interrupt
                 HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
                 TRACE_INFO("GPIO Dispatcher: OTA transfer finished, GPIO interrupt re-enabled");
+                spi_protocol_ota_state_machine_init();
             }
         }
     }

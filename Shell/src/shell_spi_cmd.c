@@ -28,7 +28,8 @@ static const char spi_cmd_help[] =
     "  spi video             - Execute video protocol\r\n"
     "  spi media_auto        - Auto-detect and execute media protocol\r\n"
     "  spi ota_upgrade       - Execute OTA upgrade protocol\r\n"
-    "  spi ota_transfer      - Execute OTA firmware transfer\r\n"
+    "  spi ota_transfer      - Execute OTA firmware transfer (blocking)\r\n"
+    "  spi ota_sm            - Execute OTA firmware transfer (state machine)\r\n"
     "  spi dispatcher <cmd>  - Control GPIO dispatcher\r\n"
     "\r\n"
     "Dispatcher Commands:\r\n"
@@ -38,6 +39,7 @@ static const char spi_cmd_help[] =
     "  enable - Enable auto event handling\r\n"
     "  disable- Disable auto event handling\r\n"
     "  status - Show current status\r\n"
+    "  setup  - Quick setup (init + start + enable)\r\n"
     "\r\n"
     "Protocol Flows:\r\n"
     "  Photo:  [0xFE,0x01] -> [0xFD,0x0A] -> [0xFE,0x0A] -> [0x31,params] -> [0x32,0x01]\r\n"
@@ -130,12 +132,24 @@ static int cmd_spi(int argc, char *argv[])
     
     /* OTA firmware transfer */
     if (strcmp(subcmd, "ota_transfer") == 0) {
-        SHELL_LOG_USER_INFO("Executing OTA firmware transfer (state machine mode)...");
+        SHELL_LOG_USER_INFO("Executing OTA firmware transfer (blocking mode)...");
         int ret = spi_protocol_ota_firmware_transfer_execute();
         if (ret == 0) {
             SHELL_LOG_USER_INFO("OTA firmware transfer completed");
         } else {
             SHELL_LOG_USER_ERROR("OTA firmware transfer failed: %d", ret);
+        }
+        return ret;
+    }
+    
+    /* OTA firmware transfer using state machine */
+    if (strcmp(subcmd, "ota_sm") == 0) {
+        SHELL_LOG_USER_INFO("Triggering OTA firmware transfer (state machine mode)...");
+        int ret = spi_gpio_dispatcher_trigger_ota_transfer();
+        if (ret == 0) {
+            SHELL_LOG_USER_INFO("OTA firmware transfer event sent, check dispatcher logs");
+        } else {
+            SHELL_LOG_USER_ERROR("Failed to trigger OTA firmware transfer: %d", ret);
         }
         return ret;
     }
@@ -191,9 +205,33 @@ static int cmd_spi(int argc, char *argv[])
             SHELL_LOG_USER_INFO("GPIO Dispatcher: %s", enabled ? "Enabled" : "Disabled");
             return 0;
         }
+        else if (strcmp(disp_cmd, "setup") == 0) {
+            // Quick setup: init + start + enable
+            SHELL_LOG_USER_INFO("Quick setup: Initializing dispatcher...");
+            
+            int ret = spi_gpio_dispatcher_init();
+            if (ret != 0) {
+                SHELL_LOG_USER_ERROR("Failed to initialize dispatcher: %d", ret);
+                return ret;
+            }
+            SHELL_LOG_USER_INFO("✓ GPIO Dispatcher initialized");
+            
+            ret = spi_gpio_dispatcher_start();
+            if (ret != 0) {
+                SHELL_LOG_USER_ERROR("Failed to start dispatcher thread: %d", ret);
+                return ret;
+            }
+            SHELL_LOG_USER_INFO("✓ Dispatcher thread started");
+            
+            spi_gpio_dispatcher_enable(true);
+            SHELL_LOG_USER_INFO("✓ Auto-handling enabled");
+            
+            SHELL_LOG_USER_INFO("Dispatcher setup completed successfully!");
+            return 0;
+        }
         else {
             SHELL_LOG_USER_ERROR("Unknown dispatcher command: %s", disp_cmd);
-            SHELL_LOG_USER_ERROR("Available: init, start, stop, enable, disable, status");
+            SHELL_LOG_USER_ERROR("Available: init, start, stop, enable, disable, status, setup");
             return -1;
         }
     }

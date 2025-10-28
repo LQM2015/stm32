@@ -123,12 +123,14 @@ static inline int platform_spi_transmit(const uint8_t *data, uint16_t size)
 {
     // Debug: dump data RIGHT before HAL call
     TRACE_INFO("platform_spi_transmit: addr=0x%08X, size=%d", (uint32_t)data, size);
-    if (size >= 20) {
-        TRACE_INFO("  Data: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-                   data[0], data[1], data[2], data[3], data[4],
+    if (size >= 30) {
+        TRACE_INFO("  SPI TX [%d bytes]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                   size, data[0], data[1], data[2], data[3], data[4],
                    data[5], data[6], data[7], data[8], data[9],
                    data[10], data[11], data[12], data[13], data[14],
-                   data[15], data[16], data[17], data[18], data[19]);
+                   data[15], data[16], data[17], data[18], data[19],
+                   data[20], data[21], data[22], data[23], data[24],
+                   data[25], data[26], data[27], data[28], data[29]);
     }
     
     // STM32H7 with D-Cache: Clean TX cache before DMA
@@ -186,13 +188,15 @@ static inline int platform_spi_receive(uint8_t *data, uint16_t size)
     SCB_InvalidateDCache_by_Addr((uint32_t*)data, size);
     
     // Dump received data
-    if (size >= 20) {
-        TRACE_INFO("SPI RX [%d bytes]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+    if (size >= 30) {
+        TRACE_INFO("SPI RX [%d bytes]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
                    size,
                    data[0], data[1], data[2], data[3], data[4],
                    data[5], data[6], data[7], data[8], data[9],
                    data[10], data[11], data[12], data[13], data[14],
-                   data[15], data[16], data[17], data[18], data[19]);
+                   data[15], data[16], data[17], data[18], data[19],
+                   data[20], data[21], data[22], data[23], data[24],
+                   data[25], data[26], data[27], data[28], data[29]);
     }
     
     return 0;

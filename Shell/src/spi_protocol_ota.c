@@ -46,6 +46,9 @@ static osTimerId_t g_ota_state_timer_id = NULL;
 static uint32_t g_ota_retry_count = 0;
 static uint32_t g_ota_file_index = 0;
 static uint32_t g_ota_bytes_sent = 0;
+static uint32_t g_ota_last_data_len = 0;  // 保存上次发送的数据长度
+static uint8_t g_ota_spi_buffer[SPICOMM_LINKLAYER_DATA_SIZE];  // 全局SPI缓冲区
+static uint32_t g_ota_packet_retry_count = 0;  // 当前数据包的重试计数
 
 /* =================================================================== */
 /* OTA File Operations                                                */
@@ -608,11 +611,6 @@ int spi_protocol_ota_firmware_transfer_execute(void)
         {
             OTA_FILE_DATA_T ota_file_data;
             
-            // 等待超时事件（如果使用定时器）
-            if (g_ota_state_timer_id != NULL) {
-                osTimerStart(g_ota_state_timer_id, 100);
-            }
-            
             // 读取文件数据
             int data_len = spi_protocol_ota_read_file_data(filename, bytes_sent, &ota_file_data);
             if (data_len <= 0) {
@@ -710,13 +708,15 @@ int spi_protocol_ota_firmware_transfer_execute(void)
 static void ota_state_timer_callback(void *argument)
 {
     (void)argument;
+    
     // Send timeout event via message queue
     if (gpio_spi_event_queue != NULL) {
         gpio_event_msg_t msg;
         msg.event_type = SPI_EVENT_TIMEOUT;
         msg.timestamp = osKernelGetTickCount();
-        osMessageQueuePut(gpio_spi_event_queue, &msg, 0, 0);
-    }
+        osStatus_t status = osMessageQueuePut(gpio_spi_event_queue, &msg, 0, 0);
+        TRACE_WARNING("OTA: State machine timeout event triggered");
+    } 
 }
 
 int spi_protocol_ota_state_machine_init(void)
@@ -738,6 +738,7 @@ int spi_protocol_ota_state_machine_init(void)
     g_ota_retry_count = 0;
     g_ota_file_index = 0;
     g_ota_bytes_sent = 0;
+    g_ota_packet_retry_count = 0;  // 初始化数据包重试计数
     
     TRACE_INFO("OTA: State machine initialized successfully");
     return 0;
@@ -746,7 +747,6 @@ int spi_protocol_ota_state_machine_init(void)
 int spi_protocol_ota_state_machine_process(void)
 {
     ctl_fr_t send_frame, recv_frame;
-    static uint8_t spi_buffer[SPICOMM_LINKLAYER_DATA_SIZE];
     int ret = 0;
     
     switch (g_ota_current_state) {
@@ -812,10 +812,10 @@ int spi_protocol_ota_state_machine_process(void)
                     OTA_FILE_INFO_T ota_info;
                     ret = spi_protocol_ota_load_file_info(&ota_info);
                     if (ret == 0) {
-                        memset(spi_buffer, 0, sizeof(spi_buffer));
-                        memcpy(spi_buffer, &ota_info, sizeof(OTA_FILE_INFO_T));
+                        memset(g_ota_spi_buffer, 0, sizeof(g_ota_spi_buffer));
+                        memcpy(g_ota_spi_buffer, &ota_info, sizeof(OTA_FILE_INFO_T));
                         
-                        ret = platform_spi_transmit(spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
+                        ret = platform_spi_transmit(g_ota_spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
                         if (ret == 0) {
                             g_ota_current_state = OTA_STATE_FILE_INFO_SENDING;
                             if (g_ota_state_timer_id) {
@@ -828,14 +828,18 @@ int spi_protocol_ota_state_machine_process(void)
                     TRACE_WARNING("spictrl: OTA Protocol: Invalid package request received");
                     ret = -1;
                 }
+            } else {
+                TRACE_WARNING("spictrl: OTA Protocol: Unexpected response received");
+                ret = -1;
             }
             break;
             
         case OTA_STATE_FILE_INFO_SENDING:
             // 接收文件信息回复
-            ret = platform_spi_receive(spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
+            platform_delay_ms(100);  // 添加延时等待对方准备好
+            ret = platform_spi_receive(g_ota_spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
             if (ret == 0) {
-                OTA_FILE_INFO_T *recv_ota_info = (OTA_FILE_INFO_T*)spi_buffer;
+                OTA_FILE_INFO_T *recv_ota_info = (OTA_FILE_INFO_T*)g_ota_spi_buffer;
                 uint32_t recv_calculated_crc32 = spi_protocol_calculate_crc32((uint8_t*)recv_ota_info, 
                                                                               sizeof(OTA_FILE_INFO_T) - sizeof(uint32_t));
                 
@@ -852,6 +856,9 @@ int spi_protocol_ota_state_machine_process(void)
                     TRACE_ERROR("spictrl: OTA Protocol: File info verification failed");
                     ret = -1;
                 }
+            } else {
+                TRACE_ERROR("spictrl: OTA Protocol: Failed to receive file info reply");
+                ret = -1;
             }
             break;
             
@@ -871,36 +878,58 @@ int spi_protocol_ota_state_machine_process(void)
                             data_len = remaining;
                         }
                         
-                        memset(spi_buffer, 0, sizeof(spi_buffer));
-                        memcpy(spi_buffer, &ota_file_data, sizeof(OTA_FILE_DATA_T));
+                        // 保存数据长度供接收校验使用
+                        g_ota_last_data_len = data_len;
                         
-                        ret = platform_spi_transmit(spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
+                        memset(g_ota_spi_buffer, 0, sizeof(g_ota_spi_buffer));
+                        memcpy(g_ota_spi_buffer, &ota_file_data, sizeof(OTA_FILE_DATA_T));
+                        
+                        ret = platform_spi_transmit(g_ota_spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
                         if (ret == 0) {
-                            // 启动定时器等待接收响应
-                            if (g_ota_state_timer_id) {
-                                osTimerStart(g_ota_state_timer_id, 100);
-                            }
                             TRACE_DEBUG("spictrl: OTA Protocol: Sent file data, offset=%d, length=%d", 
                                        g_ota_bytes_sent, data_len);
                             
-                            // 接收确认
-                            platform_delay_ms(10);
-                            ret = platform_spi_receive(spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
+                            // 接收确认 - 添加延时等待对方准备好
+                            platform_delay_ms(5);  // 关键延时！
+                            ret = platform_spi_receive(g_ota_spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
                             if (ret == 0) {
-                                OTA_FILE_DATA_T *recv_data = (OTA_FILE_DATA_T*)spi_buffer;
-                                // 使用实际数据长度计算 CRC32
-                                uint32_t recv_crc = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, data_len);
+                                OTA_FILE_DATA_T *recv_data = (OTA_FILE_DATA_T*)g_ota_spi_buffer;
+                                // 使用保存的实际数据长度计算 CRC32
+                                uint32_t recv_crc = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, g_ota_last_data_len);
                                 
                                 if (recv_crc == recv_data->crc32) {
+                                    // CRC校验成功，重置重试计数
+                                    g_ota_packet_retry_count = 0;
                                     g_ota_bytes_sent += data_len;
                                     uint32_t progress = (g_ota_bytes_sent * 100) / file_length;
+                                    // 启动定时器触发下一次发送
+                                    if (g_ota_state_timer_id) {
+                                        osTimerStart(g_ota_state_timer_id, 5);
+                                    }
                                     if (g_ota_bytes_sent % 10240 == 0 || g_ota_bytes_sent == file_length) {
                                         TRACE_INFO("spictrl: OTA Protocol: File data confirmed, progress: %d%% (%d/%d)", 
                                                   progress, g_ota_bytes_sent, file_length);
                                     }
                                 } else {
-                                    TRACE_WARNING("spictrl: OTA Protocol: Data CRC verification failed (data_len=%d)", data_len);
-                                    ret = -1;
+                                    // CRC校验失败，增加重试计数
+                                    g_ota_packet_retry_count++;
+                                    TRACE_WARNING("spictrl: OTA Protocol: Data CRC verification failed[sent=0x%08X recv=0x%08X] (data_len=%d), retry=%d/3", 
+                                                 ota_file_data.crc32, recv_crc, g_ota_last_data_len, g_ota_packet_retry_count);
+                                    
+                                    if (g_ota_packet_retry_count >= 3) {
+                                        // 重试3次后仍然失败，终止OTA升级流程
+                                        TRACE_ERROR("spictrl: OTA Protocol: Data CRC verification failed after 3 retries, aborting OTA upgrade");
+                                        g_ota_current_state = OTA_STATE_IDLE;
+                                        g_ota_packet_retry_count = 0;
+                                        spi_protocol_ota_state_machine_deinit();
+                                        ret = -1;
+                                    } else {
+                                        // 重试当前数据包，启动定时器触发重传
+                                        if (g_ota_state_timer_id) {
+                                            osTimerStart(g_ota_state_timer_id, 10);  // 等待10ms后重试
+                                        }
+                                        ret = -1;
+                                    }
                                 }
                             }
                         }
@@ -916,8 +945,17 @@ int spi_protocol_ota_state_machine_process(void)
                     if (g_ota_file_index >= g_cached_ota_info.file_numbers) {
                         g_ota_current_state = OTA_STATE_TRANSFER_COMPLETE;
                         TRACE_INFO("spictrl: OTA Protocol: All files transferred successfully!");
+                    } else {
+                        // 继续下一个文件 - 给对方足够时间准备接收新文件
+                        if (g_ota_state_timer_id) {
+                            osTimerStart(g_ota_state_timer_id, 100);  // 100ms延时
+                        }
+                        TRACE_INFO("spictrl: OTA Protocol: Preparing to send file %d...", g_ota_file_index);
                     }
                 }
+            } else {
+                g_ota_current_state = OTA_STATE_TRANSFER_COMPLETE;
+                TRACE_INFO("spictrl: OTA Protocol: All files transferred successfully!");
             }
             break;
             
@@ -925,6 +963,7 @@ int spi_protocol_ota_state_machine_process(void)
             // 传输完成，重置状态
             g_ota_current_state = OTA_STATE_IDLE;
             ret = 0;
+            TRACE_INFO("spictrl: OTA Protocol: OTA transfer process completed");
             break;
             
         default:

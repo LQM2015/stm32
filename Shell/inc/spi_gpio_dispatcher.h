@@ -40,7 +40,7 @@ extern "C" {
  * @brief Dispatcher thread priority
  */
 #ifndef SPI_DISPATCHER_THREAD_PRIORITY
-#define SPI_DISPATCHER_THREAD_PRIORITY  osPriorityNormal
+#define SPI_DISPATCHER_THREAD_PRIORITY  osPriorityLow
 #endif
 
 /**
@@ -138,6 +138,17 @@ void spi_gpio_dispatcher_set_detect_pin(void *port, uint16_t pin);
  * }
  */
 void spi_gpio_dispatcher_irq_handler(uint16_t gpio_pin);
+
+/**
+ * @brief Manually trigger OTA firmware transfer state machine
+ * 
+ * This function can be called from shell commands or other modules
+ * to directly enter the OTA firmware transfer state machine.
+ * The dispatcher thread must be running for this to work.
+ * 
+ * @return 0 on success, negative on error
+ */
+int spi_gpio_dispatcher_trigger_ota_transfer(void);
 
 #ifdef __cplusplus
 }
