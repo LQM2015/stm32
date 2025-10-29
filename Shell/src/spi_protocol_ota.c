@@ -231,8 +231,9 @@ int spi_protocol_ota_read_file_data(const char *filename, uint32_t offset,
         return -7;
     }
     
-    // Calculate CRC32
-    ota_data->crc32 = spi_protocol_calculate_crc32((uint8_t*)ota_data->file_data, read_size);
+    // Calculate CRC32 for entire data buffer (excluding CRC32 field itself)
+    ota_data->crc32 = spi_protocol_calculate_crc32((uint8_t*)ota_data->file_data, 
+                                                    SPICOMM_LINKLAYER_DATA_SIZE - sizeof(uint32_t));
     
     TRACE_DEBUG("OTA: Read %d bytes from '%s' at offset %d, CRC32=0x%08X", 
                 read_size, filename, offset, ota_data->crc32);
@@ -894,8 +895,9 @@ int spi_protocol_ota_state_machine_process(void)
                             ret = platform_spi_receive(g_ota_spi_buffer, SPICOMM_LINKLAYER_DATA_SIZE);
                             if (ret == 0) {
                                 OTA_FILE_DATA_T *recv_data = (OTA_FILE_DATA_T*)g_ota_spi_buffer;
-                                // 使用保存的实际数据长度计算 CRC32
-                                uint32_t recv_crc = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, g_ota_last_data_len);
+                                // 校验整个数据包（除了CRC32字段）
+                                uint32_t recv_crc = spi_protocol_calculate_crc32((uint8_t*)recv_data->file_data, 
+                                                                                 SPICOMM_LINKLAYER_DATA_SIZE - sizeof(uint32_t));
                                 
                                 if (recv_crc == recv_data->crc32) {
                                     // CRC校验成功，重置重试计数
@@ -913,8 +915,8 @@ int spi_protocol_ota_state_machine_process(void)
                                 } else {
                                     // CRC校验失败，增加重试计数
                                     g_ota_packet_retry_count++;
-                                    TRACE_WARNING("spictrl: OTA Protocol: Data CRC verification failed[sent=0x%08X recv=0x%08X] (data_len=%d), retry=%d/3", 
-                                                 ota_file_data.crc32, recv_crc, g_ota_last_data_len, g_ota_packet_retry_count);
+                                    TRACE_WARNING("spictrl: OTA Protocol: Data CRC verification failed[sent=0x%08X recv=0x%08X] (packet_size=%d), retry=%d/3", 
+                                                 ota_file_data.crc32, recv_crc, SPICOMM_LINKLAYER_DATA_SIZE - sizeof(uint32_t), g_ota_packet_retry_count);
                                     
                                     if (g_ota_packet_retry_count >= 3) {
                                         // 重试3次后仍然失败，终止OTA升级流程

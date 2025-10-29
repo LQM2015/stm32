@@ -25,7 +25,7 @@ extern "C" {
 #define LWK_OTA_BIN_NAME_LEN         128
 
 /* OTA Package File Path - adjust according to your file system */
-#define OTA_PACKAGE_PATH             "0:/Athlics_20251027141226.bin"
+#define OTA_PACKAGE_PATH             "0:/Athlics_20251029155913.bin"
 
 /* OTA Protocol Commands */
 #define OTA_EMPTY_CMD                0x00  /*!< Empty frame command */
