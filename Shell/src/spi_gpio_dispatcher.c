@@ -41,14 +41,7 @@ static bool g_dispatcher_enabled = false;
 
 /* SPI initialization state */
 static bool g_spi_initialized = false;
-
-/* GPIO pin configuration */
-static struct {
-    void *trigger_port;      // Trigger pin port (e.g., GPIOB)
-    uint16_t trigger_pin;    // Trigger pin number (e.g., GPIO_PIN_12)
-    void *detect_port;       // Detection pin port (e.g., GPIOB)
-    uint16_t detect_pin;     // Detection pin number (e.g., GPIO_PIN_6)
-} g_gpio_config = {
+gpio_config_t g_gpio_config = {
     .trigger_port = GPIOB,
     .trigger_pin = GPIO_PIN_12,   //2700 GPIO03
     .detect_port = GPIOB,
@@ -356,6 +349,7 @@ static void dispatcher_thread_entry(void *argument)
             ota_protocol_state_t new_state = spi_protocol_ota_get_state();
             if (new_state == OTA_STATE_TRANSFER_COMPLETE || 
                 (state != OTA_STATE_IDLE && new_state == OTA_STATE_IDLE && ret != 0)) {
+                    
                 // Transfer completed or error occurred, re-enable GPIO interrupt
                 HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
                 TRACE_INFO("GPIO Dispatcher: OTA transfer finished, GPIO interrupt re-enabled");

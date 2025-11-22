@@ -25,7 +25,7 @@ extern "C" {
 #define LWK_OTA_BIN_NAME_LEN         128
 
 /* OTA Package File Path - adjust according to your file system */
-#define OTA_PACKAGE_PATH             "0:/Athlics_20251029155913.bin"
+#define OTA_PACKAGE_PATH             "0:/Athlics_20251119191251.bin"
 
 /* OTA Protocol Commands */
 #define OTA_EMPTY_CMD                0x00  /*!< Empty frame command */
@@ -74,6 +74,7 @@ typedef struct {
     uint32_t file_type[LWK_OTA_BIN_MAX];            /*!< File types */
     uint32_t file_start_addr[LWK_OTA_BIN_MAX];      /*!< File start addresses */
     uint32_t file_length[LWK_OTA_BIN_MAX];          /*!< File lengths */
+    uint32_t   file_crc[LWK_OTA_BIN_MAX];
     uint32_t crc32;                                 /*!< CRC32 checksum */
 } __attribute__((packed)) OTA_FILE_INFO_T;
 

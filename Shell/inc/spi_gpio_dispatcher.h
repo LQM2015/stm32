@@ -50,6 +50,15 @@ extern "C" {
 #define SPI_DISPATCHER_THREAD_STACK_SIZE  8192
 #endif
 
+/* GPIO pin configuration */
+typedef struct {
+    void *trigger_port;      // Trigger pin port (e.g., GPIOB)
+    uint16_t trigger_pin;    // Trigger pin number (e.g., GPIO_PIN_12)
+    void *detect_port;       // Detection pin port (e.g., GPIOB)
+    uint16_t detect_pin;     // Detection pin number (e.g., GPIO_PIN_6)
+} gpio_config_t;
+
+extern gpio_config_t g_gpio_config;
 /* =================================================================== */
 /* Public Functions                                                   */
 /* =================================================================== */
