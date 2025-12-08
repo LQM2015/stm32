@@ -35,6 +35,7 @@ extern UART_HandleTypeDef huart1;
 
 /* Exported functions prototypes ---------------------------------------------*/
 void shell_init(void);
+void shell_start(void);           // 在FreeRTOS启动后完成初始化
 void shell_init_log_output(void);
 Shell* shell_get_instance(void);
 void shell_printf(const char *fmt, ...);

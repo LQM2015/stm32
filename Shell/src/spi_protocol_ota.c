@@ -47,7 +47,8 @@ static osTimerId_t g_ota_state_timer_id = NULL;
 static uint32_t g_ota_retry_count = 0;
 static uint32_t g_ota_file_index = 0;
 static uint32_t g_ota_bytes_sent = 0;
-static uint8_t g_ota_spi_buffer[SPICOMM_LINKLAYER_DATA_SIZE];  // 全局SPI缓冲区
+/* DMA buffer must be 32-byte aligned for D-Cache safety */
+__attribute__((aligned(32))) static uint8_t g_ota_spi_buffer[SPICOMM_LINKLAYER_DATA_SIZE];
 static uint32_t g_ota_packet_retry_count = 0;  // 当前数据包的重试计数
 
 /* =================================================================== */
@@ -477,7 +478,8 @@ int spi_protocol_ota_firmware_transfer_execute(void)
     ctl_fr_t send_frame, recv_frame;
     int ret;
     const char *protocol_name = "OTA_FIRMWARE";
-    static uint8_t spi_buffer[SPICOMM_LINKLAYER_DATA_SIZE];
+    /* DMA buffer must be 32-byte aligned for D-Cache safety */
+    __attribute__((aligned(32))) static uint8_t spi_buffer[SPICOMM_LINKLAYER_DATA_SIZE];
     
     TRACE_INFO("spictrl: %s Protocol: Starting OTA firmware transfer protocol (BES2700 in OTA boot mode)...", protocol_name);
     

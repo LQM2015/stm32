@@ -32,10 +32,10 @@ static int execute_media_protocol(business_type_t business_type)
 {
     ctl_fr_t send_frame, recv_frame;
     int ret;
-    const char *business_name;
-    uint32_t business_data;
-    uint32_t param_cmd;
-    uint32_t success_cmd;
+    const char *business_name = NULL;
+    uint32_t business_data = 0;
+    uint32_t param_cmd = 0;
+    uint32_t success_cmd = 0;
     
     // Set parameters based on business type
     if (business_type == BUSINESS_TYPE_PHOTO) {
@@ -53,6 +53,9 @@ static int execute_media_protocol(business_type_t business_type)
         business_data = WIFI_BUSINESS_DATA;
         param_cmd = WIFI_PARAM_CMD;
         success_cmd = WIFI_SUCCESS_CMD;
+    } else {
+        TRACE_ERROR("Media Protocol: Unknown business type: %d", business_type);
+        return -1;
     }
     
     TRACE_INFO("%s Protocol: Starting execution...", business_name);

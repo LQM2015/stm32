@@ -47,6 +47,7 @@
 #include "sdram_demo.h"
 #include <string.h>
 #include "sdram_loader.h"
+#include "fault_handler.h"
 #endif  /* !BOOTLOADER */
 /* USER CODE END Includes */
 
@@ -203,8 +204,12 @@ int main(void)
   MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
+  /* 初始化异常处理模块 - 尽早初始化以捕获所有异常 */
+  FaultHandler_Init();
+  
     /* 初始化 Letter Shell 终端 */
   shell_init();
+  SHELL_LOG_SYS_INFO("Fault handler initialized");
   SHELL_LOG_SYS_INFO("Letter Shell initialized successfully");
   
   /* ========================================

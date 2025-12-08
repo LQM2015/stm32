@@ -181,20 +181,38 @@ static void shell_task_function(void *argument)
  */
 void shell_init(void)
 {
+    // 首先设置 write 函数，这样即使后续初始化失败，日志也能输出
+    shell.write = shell_write;
+    shell.read = NULL;  // 暂时禁用读取
+    shell.lock = NULL;
+    shell.unlock = NULL;
+    
+    // 检查 FreeRTOS 调度器状态
+    // 如果调度器还没启动，我们只做基本初始化
+    if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
+        // 调度器未启动，只初始化基本的 shell 核心
+        shellInit(&shell, shellBuffer, SHELL_BUFFER_SIZE);
+        // 注意：此时不创建任务和队列，稍后在 shell_start() 中创建
+        return;
+    }
+    
+    // 调度器已启动，完整初始化
     // 创建互斥锁
     shellMutex = xSemaphoreCreateRecursiveMutex();
     if (shellMutex == NULL) {
+        // 即使互斥锁创建失败，shell.write 已设置，日志仍可输出
+        shellInit(&shell, shellBuffer, SHELL_BUFFER_SIZE);
         return;
     }
     
     // 创建接收队列
     shellRxQueue = xQueueCreate(SHELL_RX_QUEUE_SIZE, sizeof(uint8_t));
     if (shellRxQueue == NULL) {
+        shellInit(&shell, shellBuffer, SHELL_BUFFER_SIZE);
         return;
     }
     
-    // 配置shell
-    shell.write = shell_write;
+    // 完整配置shell
     shell.read = shell_read;
     shell.lock = shell_lock;
     shell.unlock = shell_unlock;
@@ -222,18 +240,61 @@ void shell_init(void)
  */
 void shell_init_log_output(void)
 {
-    SHELL_LOG_SYS_INFO("Shell system initialized successfully");
-    SHELL_LOG_SYS_DEBUG("Shell mutex created successfully");
-    SHELL_LOG_SYS_DEBUG("Shell RX queue created successfully (size: %d)", SHELL_RX_QUEUE_SIZE);
-    SHELL_LOG_SYS_DEBUG("Shell core initialized (buffer size: %d)", SHELL_BUFFER_SIZE);
+    // 只有在 shell.write 已设置时才输出日志
+    if (shell.write != NULL) {
+        SHELL_LOG_SYS_INFO("Shell system initialized successfully");
+        SHELL_LOG_SYS_DEBUG("Shell mutex created: %s", shellMutex != NULL ? "yes" : "no");
+        SHELL_LOG_SYS_DEBUG("Shell RX queue created: %s", shellRxQueue != NULL ? "yes" : "no");
+        SHELL_LOG_SYS_DEBUG("Shell core initialized (buffer size: %d)", SHELL_BUFFER_SIZE);
+    }
 }
 
 /**
- * @brief 创建shell任务
+ * @brief 在FreeRTOS调度器启动后完成shell初始化
+ * @note 如果 shell_init() 在调度器启动前调用，则需要在调度器启动后调用此函数
  */
-void shell_task_create(void)
+void shell_start(void)
 {
-    // shell_init函数已经包含了任务创建，这里不需要额外操作
+    // 如果已经完整初始化（有互斥锁和任务），则不需要再次初始化
+    if (shellMutex != NULL && shellTaskHandle != NULL) {
+        return;
+    }
+    
+    // 确保调度器已启动
+    if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
+        return;
+    }
+    
+    // 创建互斥锁（如果还没创建）
+    if (shellMutex == NULL) {
+        shellMutex = xSemaphoreCreateRecursiveMutex();
+    }
+    
+    // 创建接收队列（如果还没创建）
+    if (shellRxQueue == NULL) {
+        shellRxQueue = xQueueCreate(SHELL_RX_QUEUE_SIZE, sizeof(uint8_t));
+    }
+    
+    // 设置完整的shell回调
+    if (shellMutex != NULL) {
+        shell.lock = shell_lock;
+        shell.unlock = shell_unlock;
+    }
+    if (shellRxQueue != NULL) {
+        shell.read = shell_read;
+    }
+    
+    // 创建shell任务（如果还没创建）
+    if (shellTaskHandle == NULL) {
+        xTaskCreate(
+            shell_task_function,
+            "ShellTask",
+            SHELL_TASK_STACK_SIZE / sizeof(StackType_t),
+            &shell,
+            SHELL_TASK_PRIORITY,
+            &shellTaskHandle
+        );
+    }
 }
 
 /**

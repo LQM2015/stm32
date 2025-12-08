@@ -16,6 +16,12 @@
 
 static bool g_spi_initialized = false;
 
+/* 
+ * DMA receive buffer - must be aligned to D-Cache line boundary (32 bytes)
+ * to avoid cache invalidation corrupting adjacent memory (like stack return addresses)
+ */
+__attribute__((aligned(32))) static ctl_fr_t g_dma_recv_buffer;
+
 /* =================================================================== */
 /* FCS (Frame Check Sequence) Functions                              */
 /* =================================================================== */
@@ -148,6 +154,7 @@ int spi_protocol_send_frame(const ctl_fr_t *frame)
 
 /**
  * @brief Receive control frame via SPI
+ * @note Uses cache-aligned static buffer to avoid D-Cache corruption issues
  */
 int spi_protocol_receive_frame(ctl_fr_t *frame)
 {
@@ -160,15 +167,18 @@ int spi_protocol_receive_frame(ctl_fr_t *frame)
         return -2;
     }
     
-    // Clear receive buffer
-    memset(frame, 0x00, sizeof(ctl_fr_t));
+    // Clear aligned DMA receive buffer
+    memset(&g_dma_recv_buffer, 0x00, sizeof(ctl_fr_t));
     
-    // Receive frame via SPI
-    int ret = platform_spi_receive((uint8_t*)frame, sizeof(ctl_fr_t));
+    // Receive frame via SPI into aligned buffer (safe for D-Cache invalidation)
+    int ret = platform_spi_receive((uint8_t*)&g_dma_recv_buffer, sizeof(ctl_fr_t));
     if (ret != 0) {
         TRACE_ERROR("SPI receive failed: %d", ret);
         return -3;
     }
+    
+    // Copy from aligned buffer to caller's buffer
+    memcpy(frame, &g_dma_recv_buffer, sizeof(ctl_fr_t));
     
     // Dump first 20 bytes of received data
     const uint8_t *recv_data = (const uint8_t*)frame;

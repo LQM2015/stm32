@@ -23,6 +23,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "spi_gpio_dispatcher.h"
+#include "fault_handler.h"
+#include "shell_log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -81,7 +83,11 @@ extern TIM_HandleTypeDef htim1;
 void NMI_Handler(void)
 {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-
+  /* NMI can be caused by various sources, dump info for debugging */
+  FaultHandler_Printf("\r\n" SHELL_COLOR_BRIGHT_RED 
+                      "========== NMI (Non-Maskable Interrupt) ==========\r\n"
+                      SHELL_COLOR_RESET);
+  FaultHandler_Printf("NMI triggered - check RCC_CIR, Flash errors, etc.\r\n");
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
    while (1)
@@ -96,7 +102,15 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  /* Get the stack pointer and EXC_RETURN value, then call C handler */
+  __asm volatile (
+    "TST LR, #4\n"              /* Test bit 2 of EXC_RETURN */
+    "ITE EQ\n"
+    "MRSEQ R0, MSP\n"           /* If 0, use MSP */
+    "MRSNE R0, PSP\n"           /* If 1, use PSP */
+    "MOV R1, LR\n"              /* Pass EXC_RETURN in R1 */
+    "B HardFault_Handler_C\n"   /* Branch to C handler */
+  );
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -111,7 +125,15 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+  /* Get the stack pointer and EXC_RETURN value, then call C handler */
+  __asm volatile (
+    "TST LR, #4\n"              /* Test bit 2 of EXC_RETURN */
+    "ITE EQ\n"
+    "MRSEQ R0, MSP\n"           /* If 0, use MSP */
+    "MRSNE R0, PSP\n"           /* If 1, use PSP */
+    "MOV R1, LR\n"              /* Pass EXC_RETURN in R1 */
+    "B MemManage_Handler_C\n"   /* Branch to C handler */
+  );
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -126,7 +148,15 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+  /* Get the stack pointer and EXC_RETURN value, then call C handler */
+  __asm volatile (
+    "TST LR, #4\n"              /* Test bit 2 of EXC_RETURN */
+    "ITE EQ\n"
+    "MRSEQ R0, MSP\n"           /* If 0, use MSP */
+    "MRSNE R0, PSP\n"           /* If 1, use PSP */
+    "MOV R1, LR\n"              /* Pass EXC_RETURN in R1 */
+    "B BusFault_Handler_C\n"    /* Branch to C handler */
+  );
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -141,7 +171,15 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+  /* Get the stack pointer and EXC_RETURN value, then call C handler */
+  __asm volatile (
+    "TST LR, #4\n"              /* Test bit 2 of EXC_RETURN */
+    "ITE EQ\n"
+    "MRSEQ R0, MSP\n"           /* If 0, use MSP */
+    "MRSNE R0, PSP\n"           /* If 1, use PSP */
+    "MOV R1, LR\n"              /* Pass EXC_RETURN in R1 */
+    "B UsageFault_Handler_C\n"  /* Branch to C handler */
+  );
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {

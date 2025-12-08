@@ -187,7 +187,7 @@ static Shell* shellLogGetShell(void)
 void shellLogPrint(ShellLogModule_t module, ShellLogLevel_t level, const char* format, ...)
 {
     Shell *shell = shellLogGetShell();
-    if (!shell || !shellLogShouldPrint(module, level)) {
+    if (!shell || !shell->write || !shellLogShouldPrint(module, level)) {
         return;
     }
     

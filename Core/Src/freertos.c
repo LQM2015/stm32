@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "shell_log.h"  /* SHELL_LOG_TASK_xxx macros */
+#include "shell_port.h" /* shell_start() */
 #include "fatfs_init.h"
 #include "sdmmc.h"
 #include "spi.h"
@@ -262,6 +263,9 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
+  
+  /* 完成 shell 初始化（创建任务和队列） */
+  shell_start();
   
   SHELL_LOG_TASK_INFO("DefaultTask: FreeRTOS started (heap: %d bytes)", (int)xPortGetFreeHeapSize());
   
