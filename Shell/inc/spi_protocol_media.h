@@ -44,6 +44,17 @@ typedef struct {
     uint32_t timestamp;  /*!< Timestamp */
 } __attribute__((packed)) video_param_t;
 
+/**
+ * @brief WiFi parameters structure
+ */
+typedef struct {
+    uint32_t cmd;        /*!< Command: 0xB1 */
+    uint32_t sw;         /*!< Switch: 0x01=ON, 0x00=OFF */
+    uint32_t reserved1;  /*!< Reserved */
+    uint32_t reserved2;  /*!< Reserved */
+    uint32_t reserved3;  /*!< Reserved */
+} __attribute__((packed)) wifi_param_t;
+
 /* =================================================================== */
 /* Media Protocol Functions                                           */
 /* =================================================================== */
@@ -77,6 +88,20 @@ int spi_protocol_photo_execute(void);
 int spi_protocol_video_execute(void);
 
 /**
+ * @brief Execute WiFi switch protocol
+ * 
+ * Protocol flow:
+ * 1. Send Linux handshake [0xFE, 0x01]
+ * 2. Receive business confirm [0xFD, 0x0B]
+ * 3. Send business handshake [0xFE, 0x0B]
+ * 4. Receive WiFi parameters [0xB1, switch, reserved, reserved, reserved]
+ * 5. Send success confirm [0xB2, 0x01]
+ * 
+ * @return 0 on success, negative on error
+ */
+int spi_protocol_wifi_execute(void);
+
+/**
  * @brief Execute auto-detect media protocol
  * 
  * Automatically detects whether it's photo or video based on
@@ -101,6 +126,14 @@ int spi_protocol_photo_parse_params(const ctl_fr_t *frame, photo_param_t *params
  * @return 0 on success, negative on error
  */
 int spi_protocol_video_parse_params(const ctl_fr_t *frame, video_param_t *params);
+
+/**
+ * @brief Parse WiFi parameters from received frame
+ * @param frame Pointer to received frame
+ * @param params Pointer to store parsed parameters
+ * @return 0 on success, negative on error
+ */
+int spi_protocol_wifi_parse_params(const ctl_fr_t *frame, wifi_param_t *params);
 
 #ifdef __cplusplus
 }

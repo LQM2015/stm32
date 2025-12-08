@@ -91,6 +91,13 @@ typedef struct {
 #define OTA_RESPONSE_NOT_EXIST      0x02  /*!< Response: not exist */
 #define OTA_RESPONSE_RESTART        0x03  /*!< Response: restart to OTA boot */
 
+/* WiFi Protocol Commands */
+#define WIFI_BUSINESS_ACK           0x0B  /*!< WiFi business ack */
+#define WIFI_BUSINESS_DATA          0x0B  /*!< WiFi business data */
+#define WIFI_PARAM_CMD              0xB1  /*!< WiFi parameter command */
+#define WIFI_SUCCESS_CMD            0xB2  /*!< WiFi success command */
+#define WIFI_SUCCESS_DATA           0x01  /*!< WiFi success data */
+
 /* =================================================================== */
 /* Protocol State Definitions                                         */
 /* =================================================================== */
@@ -101,7 +108,8 @@ typedef struct {
 typedef enum {
     BUSINESS_TYPE_PHOTO = 0,    /*!< Photo business */
     BUSINESS_TYPE_VIDEO = 1,    /*!< Video business */
-    BUSINESS_TYPE_OTA = 2       /*!< OTA business */
+    BUSINESS_TYPE_OTA = 2,      /*!< OTA business */
+    BUSINESS_TYPE_WIFI = 3      /*!< WiFi business */
 } business_type_t;
 
 /**

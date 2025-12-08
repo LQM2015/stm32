@@ -47,7 +47,7 @@ extern "C" {
  * @brief Dispatcher thread stack size
  */
 #ifndef SPI_DISPATCHER_THREAD_STACK_SIZE
-#define SPI_DISPATCHER_THREAD_STACK_SIZE  8192
+#define SPI_DISPATCHER_THREAD_STACK_SIZE  8192*2
 #endif
 
 /* GPIO pin configuration */

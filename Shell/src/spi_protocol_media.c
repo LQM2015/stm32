@@ -43,11 +43,16 @@ static int execute_media_protocol(business_type_t business_type)
         business_data = PHOTO_BUSINESS_DATA;
         param_cmd = PHOTO_PARAM_CMD;
         success_cmd = PHOTO_SUCCESS_CMD;
-    } else {
+    } else if (business_type == BUSINESS_TYPE_VIDEO) {
         business_name = "Video";
         business_data = VIDEO_BUSINESS_DATA;
         param_cmd = VIDEO_PARAM_CMD;
         success_cmd = VIDEO_SUCCESS_CMD;
+    } else if (business_type == BUSINESS_TYPE_WIFI) {
+        business_name = "WiFi";
+        business_data = WIFI_BUSINESS_DATA;
+        param_cmd = WIFI_PARAM_CMD;
+        success_cmd = WIFI_SUCCESS_CMD;
     }
     
     TRACE_INFO("%s Protocol: Starting execution...", business_name);
@@ -94,11 +99,16 @@ static int execute_media_protocol(business_type_t business_type)
         TRACE_INFO("%s Protocol: Step 4 - Received params [cmd=0x%02X, num=%d, delay=%d, res=%d, time=%d]", 
                    business_name, photo_params->cmd, photo_params->num, 
                    photo_params->delay, photo_params->res, photo_params->time);
-    } else {
+    } else if (business_type == BUSINESS_TYPE_VIDEO) {
         video_param_t *video_params = (video_param_t*)recv_frame.data;
         TRACE_INFO("%s Protocol: Step 4 - Received params [cmd=0x%02X, duration=%d, delay=%d, res=%d, timestamp=%d]", 
                    business_name, video_params->cmd, video_params->duration, 
                    video_params->delay, video_params->res, video_params->timestamp);
+    } else if (business_type == BUSINESS_TYPE_WIFI) {
+        wifi_param_t *wifi_params = (wifi_param_t*)recv_frame.data;
+        TRACE_INFO("%s Protocol: Step 4 - Received params [cmd=0x%02X, switch=%s (0x%02X)]", 
+                   business_name, wifi_params->cmd, 
+                   wifi_params->sw == 0x01 ? "ON" : "OFF", wifi_params->sw);
     }
     
     /* ===== Step 5: Send success confirm ===== */
@@ -157,6 +167,14 @@ int spi_protocol_video_execute(void)
 }
 
 /**
+ * @brief Execute WiFi switch protocol
+ */
+int spi_protocol_wifi_execute(void)
+{
+    return execute_media_protocol(BUSINESS_TYPE_WIFI);
+}
+
+/**
  * @brief Execute auto-detect media protocol
  */
 int spi_protocol_media_auto_execute(void)
@@ -211,6 +229,9 @@ int spi_protocol_media_auto_execute(void)
     } else if (recv_data[1] == VIDEO_BUSINESS_ACK) {
         detected_type = BUSINESS_TYPE_VIDEO;
         TRACE_INFO("Media Protocol: Detected VIDEO business (ack=0x%02X)", recv_data[1]);
+    } else if (recv_data[1] == WIFI_BUSINESS_ACK) {
+        detected_type = BUSINESS_TYPE_WIFI;
+        TRACE_INFO("Media Protocol: Detected WIFI business (ack=0x%02X)", recv_data[1]);
     } else if (recv_data[1] == OTA_BUSINESS_ACK) {
         // OTA upgrade protocol - switch to OTA handler
         TRACE_INFO("Media Protocol: Detected OTA business (ack=0x%02X)", recv_data[1]);
