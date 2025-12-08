@@ -61,6 +61,8 @@
 extern SDRAM_HandleTypeDef hsdram1;
 extern MDMA_HandleTypeDef hmdma_quadspi_fifo_th;
 extern QSPI_HandleTypeDef hqspi;
+extern DMA_HandleTypeDef hdma_sai1_a;
+extern SAI_HandleTypeDef hsai_BlockA1;
 extern SD_HandleTypeDef hsd1;
 extern DMA_HandleTypeDef hdma_spi1_rx;
 extern DMA_HandleTypeDef hdma_spi1_tx;
@@ -278,6 +280,20 @@ void DMA1_Stream3_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA1 stream4 global interrupt.
+  */
+void DMA1_Stream4_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Stream4_IRQn 0 */
+
+  /* USER CODE END DMA1_Stream4_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_sai1_a);
+  /* USER CODE BEGIN DMA1_Stream4_IRQn 1 */
+
+  /* USER CODE END DMA1_Stream4_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM1 update interrupt.
   */
 void TIM1_UP_IRQHandler(void)
@@ -348,6 +364,20 @@ void SDMMC1_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles SAI1 global interrupt.
+  */
+void SAI1_IRQHandler(void)
+{
+  /* USER CODE BEGIN SAI1_IRQn 0 */
+
+  /* USER CODE END SAI1_IRQn 0 */
+  HAL_SAI_IRQHandler(&hsai_BlockA1);
+  /* USER CODE BEGIN SAI1_IRQn 1 */
+
+  /* USER CODE END SAI1_IRQn 1 */
+}
+
+/**
   * @brief This function handles QUADSPI global interrupt.
   */
 void QUADSPI_IRQHandler(void)
@@ -373,6 +403,8 @@ void DMAMUX1_OVR_IRQHandler(void)
   HAL_DMAEx_MUX_IRQHandler(&hdma_usart1_rx);
   // Handle DMA1_Stream1
   HAL_DMAEx_MUX_IRQHandler(&hdma_usart1_tx);
+  // Handle DMA1_Stream4
+  HAL_DMAEx_MUX_IRQHandler(&hdma_sai1_a);
   /* USER CODE BEGIN DMAMUX1_OVR_IRQn 1 */
 
   /* USER CODE END DMAMUX1_OVR_IRQn 1 */

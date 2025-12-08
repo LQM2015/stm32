@@ -32,6 +32,7 @@
 #include "dma.h"
 #include "mdma.h"
 #include "quadspi.h"
+#include "sai.h"
 #include "sdmmc.h"
 #include "usart.h"
 #include "gpio.h"
@@ -201,8 +202,10 @@ int main(void)
   MX_GPIO_Init();
   MX_MDMA_Init();
   MX_DMA_Init();
+
   MX_USART1_UART_Init();
 
+  MX_SAI1_Init();
   /* USER CODE BEGIN 2 */
   /* 初始化异常处理模块 - 尽早初始化以捕获所有异常 */
   FaultHandler_Init();
@@ -288,7 +291,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 5;
   RCC_OscInitStruct.PLL.PLLN = 192;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 5;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
