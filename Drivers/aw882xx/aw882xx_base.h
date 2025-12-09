@@ -5,12 +5,24 @@
 #include <stdbool.h>
 
 #include "main.h"
+#include "shell_log.h"
+#include "FreeRTOS.h"
+#include "task.h"
 /*awinic:add and delete main.h according to the actual needs*/
 
 /********************************************
  * delay: Modify delay function according to different platform
+ * Use vTaskDelay in FreeRTOS task context for better CPU utilization
+ * Use HAL_Delay before scheduler starts or in ISR context
  *******************************************/
-#define AW_MS_DELAY(time) HAL_Delay(time)
+#define AW_MS_DELAY(time) \
+    do { \
+        if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) { \
+            vTaskDelay(pdMS_TO_TICKS(time)); \
+        } else { \
+            HAL_Delay(time); \
+        } \
+    } while(0)
 
 /********************************************
  * function control of each module
@@ -97,67 +109,28 @@ typedef enum {
 
 
 /********************************************
- * print information control:Modify print function according to different platform
+ * print information control: Using shell_log system
  *******************************************/
-//#define AWINIC_DEBUG_LOG
-//#define AWINIC_INFO_LOG
-#define AWINIC_ERR_LOG
 
+/* Device-specific log macros (with dev_index) */
+#define aw_dev_err(dev_index, format, ...) \
+	SHELL_LOG_AW882XX_ERROR("[dev%d]%s: " format, dev_index, __func__, ##__VA_ARGS__)
 
-#ifdef AWINIC_ERR_LOG
-#define aw_dev_err(dev_index, format, ...); \
-	do { \
-		printf("[Awinic][dev%d]%s: " format "\r\n", dev_index, __func__, ##__VA_ARGS__);  \
-	} while (0)
-#else
-#define aw_dev_err(dev_index, format, ...)
-#endif
-
-#ifdef AWINIC_INFO_LOG
 #define aw_dev_info(dev_index, format, ...) \
-	do { \
-		printf("[Awinic][dev%d]%s: " format "\r\n", dev_index, __func__, ##__VA_ARGS__);  \
-	} while (0)
-#else
-#define aw_dev_info(dev_index, format, ...)
-#endif
+	SHELL_LOG_AW882XX_INFO("[dev%d]%s: " format, dev_index, __func__, ##__VA_ARGS__)
 
-#ifdef AWINIC_DEBUG_LOG
-#define aw_dev_dbg(dev_index, format, ...); \
-	do { \
-		printf("[Awinic][dev%d]%s: " format "\r\n", dev_index, __func__, ##__VA_ARGS__);  \
-	} while (0)
-#else
-#define aw_dev_dbg(dev_index, format, ...)
-#endif
+#define aw_dev_dbg(dev_index, format, ...) \
+	SHELL_LOG_AW882XX_DEBUG("[dev%d]%s: " format, dev_index, __func__, ##__VA_ARGS__)
 
+/* General log macros (without dev_index) */
+#define aw_pr_err(format, ...) \
+	SHELL_LOG_AW882XX_ERROR("%s: " format, __func__, ##__VA_ARGS__)
 
-#ifdef AWINIC_ERR_LOG
-#define aw_pr_err(format, ...); \
-	do { \
-		printf("[Awinic]%s: " format "\r\n", __func__, ##__VA_ARGS__);  \
-	} while (0)
-#else
-#define aw_pr_err(format, ...)
-#endif
+#define aw_pr_info(format, ...) \
+	SHELL_LOG_AW882XX_INFO("%s: " format, __func__, ##__VA_ARGS__)
 
-#ifdef AWINIC_INFO_LOG
-#define aw_pr_info(format, ...); \
-	do { \
-		printf("[Awinic]%s: " format "\r\n", __func__, ##__VA_ARGS__);  \
-	} while (0)
-#else
-#define aw_pr_info(format, ...)
-#endif
-
-#ifdef AWINIC_DEBUG_LOG
-#define aw_pr_dbg(format, ...); \
-	do { \
-		printf("[Awinic]%s: " format "\r\n", __func__, ##__VA_ARGS__);  \
-	} while (0)
-#else
-#define aw_pr_dbg(format, ...)
-#endif
+#define aw_pr_dbg(format, ...) \
+	SHELL_LOG_AW882XX_DEBUG("%s: " format, __func__, ##__VA_ARGS__)
 
 
 #endif

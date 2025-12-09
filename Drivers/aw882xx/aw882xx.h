@@ -18,7 +18,8 @@
 #define AW_I2C_RETRIES			(5)	/* 5 times */
 #define AW_I2C_RETRY_DELAY		(5)	/* 5 ms */
 
-
+#define AW_VPEAK_MAX			(8250000)
+#define AW_IPEAK_MAX			(1750)
 
 typedef enum {
 	AW_START= 0,

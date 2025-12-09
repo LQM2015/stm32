@@ -346,6 +346,13 @@ static void aw882xx_start_pa(struct aw882xx *aw882xx)
 			aw_dev_err(aw882xx->dev_index, "start failed, cnt:%d", i);
 			continue;
 		} else {
+			/* ensure boost limits are re-applied after profile reload */
+			if (aw882xx_dev_set_boost_ipeak_ma(aw882xx->aw_pa, AW_IPEAK_MAX)) {
+				aw_dev_err(aw882xx->dev_index, "set boost ipeak failed");
+			}
+			if (aw882xx_dev_set_boost_voltage_uv(aw882xx->aw_pa, AW_VPEAK_MAX)) {
+				aw_dev_err(aw882xx->dev_index, "set boost voltage failed");
+			}
 			aw_dev_info(aw882xx->dev_index, "start success");
 			break;
 		}
@@ -478,10 +485,10 @@ static int aw882xx_hw_reset(struct aw882xx *aw882xx)
 
 	aw882xx->reset_gpio_ctl(AW_PIN_RESET);
 	aw_dev_info(aw882xx->dev_index, "gpio_ctl=%d", AW_PIN_RESET);
-	AW_MS_DELAY(1);
+	AW_MS_DELAY(AW_1_MS);
 	aw882xx->reset_gpio_ctl(AW_PIN_SET);
 	aw_dev_info(aw882xx->dev_index, "gpio_ctl=%d", AW_PIN_SET);
-	AW_MS_DELAY(2);
+	AW_MS_DELAY(AW_2_MS);
 
 	return 0;
 }
@@ -570,7 +577,7 @@ static int aw882xx_init(struct aw882xx *aw882xx)
 
 int aw882xx_smartpa_init(void *aw_info)
 {
-	int ret = -1;
+	int ret = -EIO;
 	struct aw_init_info *aw_init_info = NULL;
 	struct aw882xx *aw882xx = NULL;
 
@@ -605,7 +612,7 @@ int aw882xx_smartpa_init(void *aw_info)
 
 	/*aw pa init*/
 	ret = aw882xx_init(aw882xx);
-	if (ret) {
+	if (ret < 0) {
 		goto init_failed;
 	}
 
@@ -624,6 +631,7 @@ int aw882xx_smartpa_init(void *aw_info)
 
 init_failed:
 read_chip_failed:
+	ret = (ret < 0) ? ret : -EIO;
 	free(aw882xx);
 	aw882xx = NULL;
 	return ret;
@@ -652,6 +660,11 @@ void aw882xx_smartpa_deinit(aw_dev_index_t dev_index)
 	if (aw882xx != NULL) {
 		free(aw882xx);
 		aw882xx = NULL;
+	}
+
+	g_aw882xx[dev_index] = NULL;
+	if (g_aw882xx_dev_cnt > 0) {
+		g_aw882xx_dev_cnt--;
 	}
 }
 

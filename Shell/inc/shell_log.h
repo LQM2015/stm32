@@ -80,6 +80,7 @@ typedef enum {
     SHELL_LOG_MODULE_TASK,        /*!< Task management module */
     SHELL_LOG_MODULE_UART,        /*!< UART communication module */
     SHELL_LOG_MODULE_FATFS,       /*!< File system module */
+    SHELL_LOG_MODULE_AW882XX,     /*!< AW882XX SmartPA driver module */
     SHELL_LOG_MODULE_USER,        /*!< User application module */
     SHELL_LOG_MODULE_MAX          /*!< Maximum module count */
 } ShellLogModule_t;
@@ -198,6 +199,11 @@ void shellLogPrint(ShellLogModule_t module, ShellLogLevel_t level, const char* f
 #define SHELL_LOG_USER_INFO(format, ...)       SHELL_LOG_INFO(SHELL_LOG_MODULE_USER, format, ##__VA_ARGS__)
 #define SHELL_LOG_USER_WARNING(format, ...)    SHELL_LOG_WARNING(SHELL_LOG_MODULE_USER, format, ##__VA_ARGS__)
 #define SHELL_LOG_USER_ERROR(format, ...)      SHELL_LOG_ERROR(SHELL_LOG_MODULE_USER, format, ##__VA_ARGS__)
+
+#define SHELL_LOG_AW882XX_DEBUG(format, ...)   SHELL_LOG_DEBUG(SHELL_LOG_MODULE_AW882XX, format, ##__VA_ARGS__)
+#define SHELL_LOG_AW882XX_INFO(format, ...)    SHELL_LOG_INFO(SHELL_LOG_MODULE_AW882XX, format, ##__VA_ARGS__)
+#define SHELL_LOG_AW882XX_WARNING(format, ...) SHELL_LOG_WARNING(SHELL_LOG_MODULE_AW882XX, format, ##__VA_ARGS__)
+#define SHELL_LOG_AW882XX_ERROR(format, ...)   SHELL_LOG_ERROR(SHELL_LOG_MODULE_AW882XX, format, ##__VA_ARGS__)
 
 /* Alias macros for compatibility (MEMORY is an alias for MEM) */
 #define SHELL_LOG_MEMORY_DEBUG(format, ...)    SHELL_LOG_MEM_DEBUG(format, ##__VA_ARGS__)

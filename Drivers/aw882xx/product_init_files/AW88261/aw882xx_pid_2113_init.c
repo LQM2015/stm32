@@ -236,7 +236,8 @@ int aw882xx_pid_2113_dev_init(void *aw882xx_val)
 	/* call aw device init func */
 	aw_pa->prof_info = NULL;
 	aw_pa->bop_en = AW_BOP_DISABLE;
-	aw_pa->bstcfg_enable = AW_BSTCFG_DISABLE;
+	/* Enable bstcfg so driver forces boost configuration during start */
+	aw_pa->bstcfg_enable = AW_BSTCFG_ENABLE;
 	aw_pa->vol_step = AW_PID_2113_VOL_STEP;
 	aw_pa->chip_id = aw882xx->chip_id;
 	aw_pa->dev_index = aw882xx->dev_index;
@@ -333,6 +334,18 @@ int aw882xx_pid_2113_dev_init(void *aw882xx_val)
 
 	aw_pa->ipeak_desc.reg = AW_PID_2113_BSTCTRL2_REG;
 	aw_pa->ipeak_desc.mask = AW_PID_2113_BST_IPEAK_MASK;
+	aw_pa->ipeak_desc.shift = AW_PID_2113_BST_IPEAK_START_BIT;
+	aw_pa->ipeak_desc.min_ma = 1750;
+	aw_pa->ipeak_desc.max_ma = 4250;
+	aw_pa->ipeak_desc.step_ma = 250;
+
+	aw_pa->vout_desc.reg = AW_PID_2113_BSTCTRL2_REG;
+	aw_pa->vout_desc.mask = AW_PID_2113_VOUT_VREFSET_MASK;
+	aw_pa->vout_desc.shift = AW_PID_2113_VOUT_VREFSET_START_BIT;
+	aw_pa->vout_desc.min_uv = 5000000;
+	aw_pa->vout_desc.max_uv = 10250000;
+	aw_pa->vout_desc.step_uv = 62500;
+	aw_pa->vout_desc.base_code = 0x18;
 
 	aw_pa->volume_desc.reg = AW_PID_2113_SYSCTRL2_REG;
 	aw_pa->volume_desc.mask = AW_PID_2113_VOL_MASK;

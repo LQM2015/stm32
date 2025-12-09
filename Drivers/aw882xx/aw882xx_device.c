@@ -8,6 +8,7 @@
 */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,6 +17,8 @@
 #include "aw_profile_process.h"
 
 #define AW_DEV_SYSST_CHECK_MAX		(10)
+
+static int aw_dev_set_vcalb(struct aw_device *aw_dev);
 
 
 #ifdef AW_MONITOR
@@ -52,6 +55,50 @@ void aw882xx_dev_get_monitor_func(struct aw_device *aw_dev)
 
 static unsigned int g_fade_in_time = AW_1_MS;
 static unsigned int g_fade_out_time = AW_1_MS;
+
+static unsigned int aw_dev_get_shift_from_mask(unsigned int mask)
+{
+	unsigned int shift = 0;
+
+	while (shift < 32 && (mask & (1u << shift)))
+		shift++;
+
+	return shift;
+}
+
+static unsigned int aw_dev_get_width_from_mask(unsigned int mask, unsigned int shift)
+{
+	unsigned int width = 0;
+
+	if (shift >= 32)
+		return 0;
+
+	while ((shift + width) < 32 && ((mask & (1u << (shift + width))) == 0))
+		width++;
+
+	return width;
+}
+
+static unsigned int aw_dev_get_field_mask(unsigned int mask)
+{
+	unsigned int shift = aw_dev_get_shift_from_mask(mask);
+	unsigned int width = aw_dev_get_width_from_mask(mask, shift);
+
+	if (width == 0 || width >= 32)
+		return 0;
+
+	return ((1u << width) - 1u) << shift;
+}
+
+static unsigned int aw_dev_clamp_unsigned(unsigned int value, unsigned int min,
+	unsigned int max)
+{
+	if (value < min)
+		return min;
+	if (value > max)
+		return max;
+	return value;
+}
 
 int aw882xx_dev_check_prof(aw_dev_index_t dev_index, struct aw_prof_info *prof_info)
 {
@@ -96,6 +143,274 @@ int aw882xx_dev_check_prof(aw_dev_index_t dev_index, struct aw_prof_info *prof_i
 			}
 		}
 	}
+
+	return 0;
+}
+
+int aw882xx_dev_set_boost_ipeak_ma(struct aw_device *aw_dev, unsigned int ipeak_ma)
+{
+	struct aw_ipeak_desc *desc = NULL;
+	unsigned int shift = 0;
+	unsigned int width = 0;
+	unsigned int field_mask = 0;
+	unsigned int max_code = 0;
+	unsigned int max_valid_code = 0;
+	unsigned int target_ma = 0;
+	unsigned int code = 0;
+	int ret = 0;
+
+	if (aw_dev == NULL)
+		return -EINVAL;
+
+	if (aw_dev->ops.aw_i2c_write_bits == NULL)
+		return -EINVAL;
+
+	desc = &aw_dev->ipeak_desc;
+	if (desc->mask == 0 || desc->reg == 0)
+		return -EINVAL;
+
+	if (desc->min_ma == 0 || desc->max_ma == 0 || desc->step_ma == 0)
+		return -EINVAL;
+
+	shift = desc->shift ? desc->shift : aw_dev_get_shift_from_mask(desc->mask);
+	width = aw_dev_get_width_from_mask(desc->mask, shift);
+	if (width == 0 || width >= 32)
+		return -EINVAL;
+
+	field_mask = aw_dev_get_field_mask(desc->mask);
+	if (field_mask == 0)
+		return -EINVAL;
+
+	if (desc->max_ma < desc->min_ma)
+		return -EINVAL;
+
+	max_code = (1u << width) - 1u;
+	max_valid_code = (desc->max_ma - desc->min_ma) / desc->step_ma;
+	if (max_valid_code < max_code)
+		max_code = max_valid_code;
+	if (max_code == 0)
+		return -EINVAL;
+
+	target_ma = aw_dev_clamp_unsigned(ipeak_ma, desc->min_ma, desc->max_ma);
+
+	code = (unsigned int)(((unsigned long long)(target_ma - desc->min_ma) + (desc->step_ma / 2)) / desc->step_ma);
+	if (code > max_code)
+		code = max_code;
+
+	target_ma = desc->min_ma + code * desc->step_ma;
+
+	ret = aw_dev->ops.aw_i2c_write_bits(aw_dev, desc->reg, desc->mask, code << shift);
+	if (ret < 0)
+		return ret;
+
+	aw_dev_info(aw_dev->dev_index, "boost peak current %u mA (code %u)", target_ma, code);
+
+	return 0;
+}
+
+int aw882xx_dev_get_boost_ipeak_ma(struct aw_device *aw_dev, unsigned int *ipeak_ma)
+{
+	struct aw_ipeak_desc *desc = NULL;
+	unsigned int shift = 0;
+	unsigned int width = 0;
+	unsigned int field_mask = 0;
+	unsigned int max_code = 0;
+	unsigned int reg_val = 0;
+	unsigned int code = 0;
+	int ret = 0;
+
+	if (aw_dev == NULL || ipeak_ma == NULL)
+		return -EINVAL;
+
+	if (aw_dev->ops.aw_i2c_read == NULL)
+		return -EINVAL;
+
+	desc = &aw_dev->ipeak_desc;
+	if (desc->mask == 0 || desc->reg == 0)
+		return -EINVAL;
+
+	if (desc->min_ma == 0 || desc->step_ma == 0)
+		return -EINVAL;
+
+	shift = desc->shift ? desc->shift : aw_dev_get_shift_from_mask(desc->mask);
+	width = aw_dev_get_width_from_mask(desc->mask, shift);
+	if (width == 0 || width >= 32)
+		return -EINVAL;
+
+	field_mask = aw_dev_get_field_mask(desc->mask);
+	if (field_mask == 0)
+		return -EINVAL;
+
+	ret = aw_dev->ops.aw_i2c_read(aw_dev, desc->reg, &reg_val);
+	if (ret < 0)
+		return ret;
+
+	code = (reg_val & field_mask) >> shift;
+
+	if (desc->max_ma > desc->min_ma)
+		max_code = (desc->max_ma - desc->min_ma) / desc->step_ma;
+	else
+		max_code = (1u << width) - 1u;
+	if (code > max_code)
+		code = max_code;
+
+	*ipeak_ma = desc->min_ma + code * desc->step_ma;
+	if (desc->max_ma && *ipeak_ma > desc->max_ma)
+		*ipeak_ma = desc->max_ma;
+
+	return 0;
+}
+
+int aw882xx_dev_set_boost_voltage_uv(struct aw_device *aw_dev, unsigned int vout_uv)
+{
+	struct aw_vout_desc *desc = NULL;
+	unsigned int shift = 0;
+	unsigned int width = 0;
+	unsigned int field_mask = 0;
+	unsigned int max_code = 0;
+	unsigned int code_limit = 0;
+	unsigned int rel_code = 0;
+	unsigned int code = 0;
+	unsigned int applied_uv = 0;
+	int ret = 0;
+
+	if (aw_dev == NULL)
+		return -EINVAL;
+
+	if (aw_dev->ops.aw_i2c_write_bits == NULL)
+		return -EINVAL;
+
+	desc = &aw_dev->vout_desc;
+	if (desc->mask == 0 || desc->reg == 0)
+		return -EINVAL;
+
+	if (desc->min_uv == 0 || desc->step_uv == 0)
+		return -EINVAL;
+
+	shift = desc->shift ? desc->shift : aw_dev_get_shift_from_mask(desc->mask);
+	width = aw_dev_get_width_from_mask(desc->mask, shift);
+	if (width == 0 || width >= 32)
+		return -EINVAL;
+
+	field_mask = aw_dev_get_field_mask(desc->mask);
+	if (field_mask == 0)
+		return -EINVAL;
+
+	max_code = (1u << width) - 1u;
+	if (desc->base_code > max_code)
+		return -EINVAL;
+
+	if (desc->max_uv > desc->min_uv) {
+		unsigned long long diff_uv = (unsigned long long)(desc->max_uv - desc->min_uv);
+		code_limit = (unsigned int)(diff_uv / desc->step_uv);
+		if (desc->base_code + code_limit > max_code)
+			code_limit = max_code - desc->base_code;
+	} else {
+		code_limit = max_code - desc->base_code;
+	}
+
+	if (desc->max_uv > desc->min_uv)
+		vout_uv = aw_dev_clamp_unsigned(vout_uv, desc->min_uv, desc->max_uv);
+	else {
+		unsigned long long max_uv = (unsigned long long)desc->min_uv +
+			(unsigned long long)desc->step_uv * code_limit;
+		if (vout_uv < desc->min_uv)
+			vout_uv = desc->min_uv;
+		else if ((unsigned long long)vout_uv > max_uv)
+			vout_uv = (unsigned int)max_uv;
+	}
+
+	rel_code = (unsigned int)(((unsigned long long)(vout_uv - desc->min_uv) + (desc->step_uv / 2)) / desc->step_uv);
+	if (rel_code > code_limit)
+		rel_code = code_limit;
+
+	code = desc->base_code + rel_code;
+	if (code > max_code)
+		code = max_code;
+
+	applied_uv = desc->min_uv + rel_code * desc->step_uv;
+
+	ret = aw_dev->ops.aw_i2c_write_bits(aw_dev, desc->reg, desc->mask, code << shift);
+	if (ret < 0)
+		return ret;
+
+	aw_dev_info(aw_dev->dev_index, "boost voltage %u uV (code %u)", applied_uv, code);
+
+	return 0;
+}
+
+int aw882xx_dev_get_boost_voltage_uv(struct aw_device *aw_dev, unsigned int *vout_uv)
+{
+	struct aw_vout_desc *desc = NULL;
+	unsigned int shift = 0;
+	unsigned int width = 0;
+	unsigned int field_mask = 0;
+	unsigned int reg_val = 0;
+	unsigned int code = 0;
+	unsigned int rel_code = 0;
+	unsigned int code_limit = 0;
+	unsigned int max_code = 0;
+	unsigned long long voltage = 0;
+	int ret = 0;
+
+	if (aw_dev == NULL || vout_uv == NULL)
+		return -EINVAL;
+
+	if (aw_dev->ops.aw_i2c_read == NULL)
+		return -EINVAL;
+
+	desc = &aw_dev->vout_desc;
+	if (desc->mask == 0 || desc->reg == 0)
+		return -EINVAL;
+
+	if (desc->min_uv == 0 || desc->step_uv == 0)
+		return -EINVAL;
+
+	shift = desc->shift ? desc->shift : aw_dev_get_shift_from_mask(desc->mask);
+	width = aw_dev_get_width_from_mask(desc->mask, shift);
+	if (width == 0 || width >= 32)
+		return -EINVAL;
+
+	field_mask = aw_dev_get_field_mask(desc->mask);
+	if (field_mask == 0)
+		return -EINVAL;
+
+	max_code = (1u << width) - 1u;
+	if (desc->base_code > max_code)
+		return -EINVAL;
+
+	ret = aw_dev->ops.aw_i2c_read(aw_dev, desc->reg, &reg_val);
+	if (ret < 0)
+		return ret;
+
+	code = (reg_val & field_mask) >> shift;
+
+	if (code < desc->base_code)
+		code = desc->base_code;
+
+	if (desc->max_uv > desc->min_uv) {
+		unsigned long long diff_uv = (unsigned long long)(desc->max_uv - desc->min_uv);
+		code_limit = (unsigned int)(diff_uv / desc->step_uv);
+		if (desc->base_code + code_limit < desc->base_code)
+			code_limit = 0;
+	} else {
+		code_limit = max_code - desc->base_code;
+	}
+
+	if (code_limit > max_code - desc->base_code)
+		code_limit = max_code - desc->base_code;
+
+	if (code > desc->base_code + code_limit)
+		code = desc->base_code + code_limit;
+
+	rel_code = code - desc->base_code;
+
+	voltage = (unsigned long long)desc->min_uv +
+		(unsigned long long)rel_code * desc->step_uv;
+	if (desc->max_uv > desc->min_uv && voltage > desc->max_uv)
+		voltage = desc->max_uv;
+
+	*vout_uv = (unsigned int)voltage;
 
 	return 0;
 }
@@ -750,13 +1065,13 @@ static int aw_dev_sysst_check(struct aw_device *aw_dev)
 			ret = 0;
 			break;
 		} else {
-			aw_dev_info(aw_dev->dev_index, "check fail, cnt=%d, reg_val=0x%04x",
-					i, reg_val);
+			aw_dev_err(aw_dev->dev_index, "SYSST mismatch cnt=%d val=0x%04x", i, reg_val);
 			AW_MS_DELAY(AW_2_MS);
 		}
 	}
 	if (ret < 0) {
-		aw_dev_err(aw_dev->dev_index, "check fail");
+		aw_dev_err(aw_dev->dev_index, "SYSST check failed after %d tries (last=0x%04x)",
+			AW_DEV_SYSST_CHECK_MAX, reg_val);
 	} else {
 		aw_dev_info(aw_dev->dev_index, "done");
 	}
@@ -948,6 +1263,13 @@ static void aw_dev_boost_type_recover(struct aw_device *aw_dev)
 
 	aw_dev_dbg(aw_dev->dev_index, "enter");
 
+	aw_dev_info(aw_dev->dev_index, "DEBUG: bstcfg_enable=%d, reg=0x%02x, mask=0x%04x",
+	            aw_dev->bstcfg_enable, bstctrl_desc->reg, bstctrl_desc->mask);
+
+	aw_dev_info(aw_dev->dev_index, "DEBUG: tsp_type=0x%04x, cfg_bst_type=0x%04x", 
+	            bstctrl_desc->tsp_type, bstctrl_desc->cfg_bst_type);				
+
+
 	if (aw_dev->bstcfg_enable) {
 		/*set transprant*/
 		aw_dev->ops.aw_i2c_write_bits(aw_dev, bstctrl_desc->reg,
@@ -1059,6 +1381,38 @@ int aw882xx_device_start(struct aw_device *aw_dev)
 	if (!aw_dev->mute_st) {
 		/*close mute*/
 		aw_dev_mute(aw_dev, false);
+		
+		/* CRITICAL: Wait for audio data to flow and boost to stabilize
+		 * SmartPA needs actual audio signal (not just I2S clocks) to start boost.
+		 * Give it time to detect audio and start boost/switch circuits.
+		 */
+		AW_MS_DELAY(50);
+		
+		// DEBUG: Dump all critical registers after unmute to diagnose no sound issue
+		unsigned int reg_val = 0;
+		if (aw_dev->ops.aw_i2c_read) {
+			aw_dev->ops.aw_i2c_read(aw_dev, 0x01, &reg_val);  // SYSST
+			aw_dev_info(aw_dev->dev_index, "DEBUG: SYSST(0x01) = 0x%04x (PLLS=%d,CLKS=%d)", 
+			            reg_val, reg_val&1, (reg_val>>4)&1);
+
+			aw_dev_info(aw_dev->dev_index, "DEBUG: SYSST(0x01) = 0x%04x (SWS=%d,BSTS=%d,UVLS=%d)", 
+			            (reg_val>>4)&1, (reg_val>>8)&1, (reg_val>>9)&1, (reg_val>>13)&1);
+			
+			aw_dev->ops.aw_i2c_read(aw_dev, 0x04, &reg_val);  // SYSCTRL
+			aw_dev_info(aw_dev->dev_index, "DEBUG: SYSCTRL(0x04) = 0x%04x (PWDN=%d,AMPPD=%d,I2SEN=%d)", 
+			            reg_val, reg_val&1, (reg_val>>1)&1, (reg_val>>6)&1);
+			aw_dev_info(aw_dev->dev_index, "DEBUG: SYSCTRL(0x04) = 0x%04x (HMUTE=%d,HDCCE=%d,ULS_HMUTE=%d)", 
+			            reg_val, (reg_val>>8)&1, (reg_val>>10)&1, (reg_val>>14)&1);
+			
+			aw_dev->ops.aw_i2c_read(aw_dev, 0x05, &reg_val);  // SYSCTRL2 (volume)
+			aw_dev_info(aw_dev->dev_index, "DEBUG: SYSCTRL2(0x05) = 0x%04x (VOL=%d)", reg_val, reg_val&0xFF);
+			
+			aw_dev->ops.aw_i2c_read(aw_dev, 0x60, &reg_val);  // BSTCTRL1
+			aw_dev_info(aw_dev->dev_index, "DEBUG: BSTCTRL1(0x60) = 0x%04x (BST_MODE=%d)", reg_val, reg_val&0x3);
+			
+			aw_dev->ops.aw_i2c_read(aw_dev, 0x61, &reg_val);  // BSTCTRL2
+			aw_dev_info(aw_dev->dev_index, "DEBUG: BSTCTRL2(0x61) = 0x%04x", reg_val);
+		}
 	}
 
 	/*clear inturrupt*/

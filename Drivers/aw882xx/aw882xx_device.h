@@ -215,6 +215,10 @@ struct aw_temperature_desc {
 struct aw_ipeak_desc {
 	unsigned int reg;
 	unsigned int mask;
+	unsigned int shift;
+	unsigned int min_ma;
+	unsigned int max_ma;
+	unsigned int step_ma;
 };
 
 struct aw_efcheck_desc {
@@ -229,6 +233,16 @@ struct aw_dither_desc {
 	unsigned int mask;
 	unsigned int enable;
 	unsigned int disable;
+};
+
+struct aw_vout_desc {
+	unsigned int reg;
+	unsigned int mask;
+	unsigned int shift;
+	unsigned int min_uv;
+	unsigned int max_uv;
+	unsigned int step_uv;
+	unsigned int base_code;
 };
 
 struct aw_device {
@@ -267,9 +281,10 @@ struct aw_device {
 	struct aw_voltage_desc voltage_desc;
 	struct aw_temperature_desc temp_desc;
 	struct aw_ipeak_desc ipeak_desc;
+	struct aw_vout_desc vout_desc;
 	struct aw_volume_desc volume_desc;
 #ifdef AW_MONITOR
-  struct aw_monitor_desc monitor_desc;
+	struct aw_monitor_desc monitor_desc;
 #endif
 	struct aw_soft_rst soft_rst;
 	struct aw_bop_desc bop_desc;
@@ -311,6 +326,11 @@ char *aw882xx_dev_get_profile_name(struct aw_device *aw_dev);
 void aw882xx_dev_interrupt_clear(struct aw_device *aw_dev);
 
 int aw882xx_dev_check_prof(aw_dev_index_t dev_index, struct aw_prof_info *prof_info);
+
+int aw882xx_dev_set_boost_ipeak_ma(struct aw_device *aw_dev, unsigned int ipeak_ma);
+int aw882xx_dev_get_boost_ipeak_ma(struct aw_device *aw_dev, unsigned int *ipeak_ma);
+int aw882xx_dev_set_boost_voltage_uv(struct aw_device *aw_dev, unsigned int vout_uv);
+int aw882xx_dev_get_boost_voltage_uv(struct aw_device *aw_dev, unsigned int *vout_uv);
 
 #endif
 
