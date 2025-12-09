@@ -31,9 +31,9 @@
 #include "cmsis_os.h"
 #include "dma.h"
 #include "i2c.h"
+#include "i2s.h"
 #include "mdma.h"
 #include "quadspi.h"
-#include "sai.h"
 #include "sdmmc.h"
 #include "usart.h"
 #include "gpio.h"
@@ -206,8 +206,8 @@ int main(void)
 
   MX_USART1_UART_Init();
 
-  MX_SAI1_Init();
   MX_I2C1_Init();
+  MX_I2S2_Init();
   /* USER CODE BEGIN 2 */
   /* 初始化异常处理模块 - 尽早初始化以捕获所有异常 */
   FaultHandler_Init();
