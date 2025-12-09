@@ -65,6 +65,10 @@
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths.1803042059" name="Include paths (-I)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths" useByScannerDiscovery="false" valueType="includePath">
 									<listOptionValue builtIn="false" value="../Core/Inc"/>
+									<listOptionValue builtIn="false" value="../Drivers/aw882xx/monitor_files"/>
+									<listOptionValue builtIn="false" value="../Drivers/aw882xx/product_init_files/AW88261"/>
+									<listOptionValue builtIn="false" value="../Drivers/aw882xx/config/AW88261/stereo/32"/>
+									<listOptionValue builtIn="false" value="../Drivers/aw882xx"/>
 									<listOptionValue builtIn="false" value="../Shell/inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/Flash_driver/Inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/STM32H7xx_HAL_Driver/Inc"/>

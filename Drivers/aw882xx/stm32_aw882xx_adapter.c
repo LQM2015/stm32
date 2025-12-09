@@ -6,13 +6,13 @@
  * 
  * This file provides the platform-specific implementation for AW882XX SmartPA
  * driver on STM32 platform, including I2C communication, GPIO control, and
- * SAI/I2S audio interface.
+ * I2S audio interface.
  */
 
 #include "stm32_aw882xx_adapter.h"
 #include "main.h"
 #include "i2c.h"
-#include "sai.h"
+#include "i2s.h"
 #include "gpio.h"
 #include "shell_log.h"
 #include "aw882xx_init.h"
@@ -26,7 +26,7 @@
  * Include device-specific parameters
  * Modify the path according to your chip model
  *******************************************/
-#include "config/AW88261/mono/32/aw_params.h"
+#include "aw_params.h"
 
 /********************************************
  * Private defines
@@ -38,13 +38,13 @@
  * External HAL handles (from CubeMX generated code)
  *******************************************/
 extern I2C_HandleTypeDef hi2c1;
-extern SAI_HandleTypeDef hsai_BlockA1;
+extern I2S_HandleTypeDef hi2s2;
 
 /********************************************
  * Private variables
  *******************************************/
 static bool g_aw882xx_initialized = false;
-static bool g_sai_started = false;
+static bool g_i2s_started = false;
 
 /********************************************
  * Forward declarations
@@ -241,18 +241,18 @@ static void aw882xx_reset_sequence(void)
 }
 
 /********************************************
- * SAI/I2S Audio Interface Implementation
+ * I2S Audio Interface Implementation
  *******************************************/
 
 /**
- * @brief Configure SAI for I2S mode
+ * @brief Configure I2S interface
  */
-static int aw882xx_sai_configure(AW882XX_AudioConfig_t *cfg)
+static int aw882xx_i2s_configure(AW882XX_AudioConfig_t *cfg)
 {
-    /* SAI is already configured by CubeMX in MX_SAI1_Init() */
+    /* I2S is already configured by CubeMX in MX_I2S2_Init() */
     /* If dynamic reconfiguration is needed, implement here */
     
-    SHELL_LOG_AW882XX_INFO("SAI configured: rate=%lu, bits=%lu, ch=%lu",
+    SHELL_LOG_AW882XX_INFO("I2S configured: rate=%lu, bits=%lu, ch=%lu",
                            cfg->sample_rate, cfg->data_size, cfg->channel_num);
     return 0;
 }
@@ -398,17 +398,17 @@ int aw882xx_stream_setup(AW882XX_StreamType_t stream, AW882XX_AudioConfig_t *cfg
     SHELL_LOG_AW882XX_INFO("Setting up stream: rate=%lu bits=%lu ch=%lu",
                            cfg->sample_rate, cfg->data_size, cfg->channel_num);
     
-    return aw882xx_sai_configure(cfg);
+    return aw882xx_i2s_configure(cfg);
 }
 
 int aw882xx_stream_start(AW882XX_StreamType_t stream, AW882XX_Mode_t mode)
 {
     SHELL_LOG_AW882XX_INFO("Starting stream: type=%d mode=%d", stream, mode);
     
-    if (!g_sai_started) {
-        /* Start SAI (enable clocks) */
-        /* Note: Actual audio data transmission requires HAL_SAI_Transmit_DMA */
-        g_sai_started = true;
+    if (!g_i2s_started) {
+        /* Start I2S (enable clocks) */
+        /* Note: Actual audio data transmission requires HAL_I2S_Transmit_DMA */
+        g_i2s_started = true;
     }
     
     /* Wait for I2S clocks to stabilize */
@@ -425,10 +425,10 @@ int aw882xx_stream_stop(AW882XX_StreamType_t stream, AW882XX_Mode_t mode)
     /* Stop SmartPA first */
     aw882xx_adapter_stop();
     
-    if (g_sai_started) {
-        /* Stop SAI DMA */
-        HAL_SAI_DMAStop(&hsai_BlockA1);
-        g_sai_started = false;
+    if (g_i2s_started) {
+        /* Stop I2S DMA */
+        HAL_I2S_DMAStop(&hi2s2);
+        g_i2s_started = false;
     }
     
     return 0;
@@ -453,9 +453,9 @@ int aw882xx_audio_transmit_dma(uint8_t *pData, uint16_t Size)
         return -1;
     }
     
-    HAL_StatusTypeDef status = HAL_SAI_Transmit_DMA(&hsai_BlockA1, pData, Size);
+    HAL_StatusTypeDef status = HAL_I2S_Transmit_DMA(&hi2s2, (uint16_t *)pData, Size / 2);
     if (status != HAL_OK) {
-        SHELL_LOG_AW882XX_ERROR("SAI DMA transmit failed: status=%d", status);
+        SHELL_LOG_AW882XX_ERROR("I2S DMA transmit failed: status=%d", status);
         return -1;
     }
     
@@ -523,35 +523,35 @@ int aw882xx_adapter_set_volume(uint32_t volume)
 }
 
 /********************************************
- * SAI DMA Callbacks (optional)
+ * I2S DMA Callbacks (optional)
  *******************************************/
 
 /**
- * @brief SAI TX complete callback
+ * @brief I2S TX complete callback
  */
-void HAL_SAI_TxCpltCallback(SAI_HandleTypeDef *hsai)
+void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s)
 {
-    if (hsai->Instance == SAI1_Block_A) {
+    if (hi2s->Instance == SPI2) {
         /* Handle TX complete - implement circular buffer logic here if needed */
     }
 }
 
 /**
- * @brief SAI TX half complete callback
+ * @brief I2S TX half complete callback
  */
-void HAL_SAI_TxHalfCpltCallback(SAI_HandleTypeDef *hsai)
+void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
 {
-    if (hsai->Instance == SAI1_Block_A) {
+    if (hi2s->Instance == SPI2) {
         /* Handle TX half complete - implement double buffer logic here if needed */
     }
 }
 
 /**
- * @brief SAI error callback
+ * @brief I2S error callback
  */
-void HAL_SAI_ErrorCallback(SAI_HandleTypeDef *hsai)
+void HAL_I2S_ErrorCallback(I2S_HandleTypeDef *hi2s)
 {
-    if (hsai->Instance == SAI1_Block_A) {
-        SHELL_LOG_AW882XX_ERROR("SAI error: code=0x%lX", hsai->ErrorCode);
+    if (hi2s->Instance == SPI2) {
+        SHELL_LOG_AW882XX_ERROR("I2S error: code=0x%lX", hi2s->ErrorCode);
     }
 }

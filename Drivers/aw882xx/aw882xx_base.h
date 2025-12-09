@@ -28,11 +28,11 @@
  * function control of each module
  *******************************************/
 
-//#define AW_DEBUG
+#define AW_DEBUG
 //#define AW_FADE
-//#define AW_VOLUME
+#define AW_VOLUME
 //#define AW_IRQ
-//#define AW_MONITOR
+#define AW_MONITOR
 
 /********************************************
  * dev_index information
