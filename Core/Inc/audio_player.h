@@ -21,8 +21,8 @@ extern "C" {
 
 /* Double buffer size for DMA (samples per buffer, not bytes) */
 /* Each sample = 2 channels * 4 bytes (32-bit) = 8 bytes */
-/* 1024 samples = 8192 bytes per half buffer */
-#define AUDIO_BUFFER_SAMPLES    1024
+/* 4096 samples = 32768 bytes per half buffer (~85ms @ 48kHz) */
+#define AUDIO_BUFFER_SAMPLES    4096
 #define AUDIO_BUFFER_SIZE       (AUDIO_BUFFER_SAMPLES * 2)  /* 32-bit stereo = 2 x uint32_t per sample */
 
 /********************************************
@@ -43,6 +43,7 @@ typedef struct {
     uint32_t sample_rate;       /* Sample rate in Hz (e.g., 48000) */
     uint8_t  bits_per_sample;   /* Bits per sample (16, 24, 32) */
     uint8_t  channels;          /* Number of channels (1=mono, 2=stereo) */
+    bool     is_float;          /* True if data is 32-bit float */
 } AudioFormat_t;
 
 /********************************************

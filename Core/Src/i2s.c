@@ -45,7 +45,7 @@ void MX_I2S2_Init(void)
   hi2s2.Init.DataFormat = I2S_DATAFORMAT_32B;
   hi2s2.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
   hi2s2.Init.AudioFreq = I2S_AUDIOFREQ_48K;
-  hi2s2.Init.CPOL = I2S_CPOL_HIGH;
+  hi2s2.Init.CPOL = I2S_CPOL_LOW;  /* Philips standard uses CPOL_LOW */
   hi2s2.Init.FirstBit = I2S_FIRSTBIT_MSB;
   hi2s2.Init.WSInversion = I2S_WS_INVERSION_DISABLE;
   hi2s2.Init.Data24BitAlignment = I2S_DATA_24BIT_ALIGNMENT_RIGHT;

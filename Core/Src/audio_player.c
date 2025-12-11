@@ -40,7 +40,7 @@ static uint32_t g_audio_rx_buffer[AUDIO_BUFFER_SIZE * 2] __attribute__((aligned(
 
 /* Intermediate buffer for file reading - in D1 SRAM for SDMMC IDMA access */
 /* SDMMC IDMA can ONLY access AXI SRAM (D1 domain), NOT D2 SRAM */
-#define FILE_READ_CHUNK_SIZE  4096
+#define FILE_READ_CHUNK_SIZE  32768
 static uint8_t g_file_read_buffer[FILE_READ_CHUNK_SIZE] __attribute__((aligned(32)));
 
 /* File handle */
@@ -59,6 +59,7 @@ static AudioFormat_t g_audio_format = {
     .sample_rate = 48000,
     .bits_per_sample = 32,
     .channels = 2,
+    .is_float = false,
 };
 
 /* Synchronization - use message queue for reliable ISR to task communication */
@@ -173,10 +174,11 @@ int audio_player_play_file(const char *filepath, AudioFormat_t *format, bool loo
     uint32_t total_samples = g_total_bytes / bytes_per_sample;
     uint32_t duration_ms = (total_samples * 1000) / g_audio_format.sample_rate;
     
-    SHELL_LOG_AUDIO_INFO("Format: %luHz, %dbit, %dch", 
+    SHELL_LOG_AUDIO_INFO("Format: %luHz, %dbit, %dch, %s", 
                          g_audio_format.sample_rate,
                          g_audio_format.bits_per_sample,
-                         g_audio_format.channels);
+                         g_audio_format.channels,
+                         g_audio_format.is_float ? "Float" : "Int");
     SHELL_LOG_AUDIO_INFO("Duration: %lu ms, Loop: %s", duration_ms, loop ? "ON" : "OFF");
     
     /* Pre-fill both buffers FIRST */
@@ -476,9 +478,28 @@ static int fill_buffer(uint32_t *buffer, uint32_t samples)
             return -2;
         }
         
-        /* Copy to audio buffer - use memcpy for efficiency */
-        g_memcpy_count++;  /* Track before memcpy */
-        memcpy(dest + total_read, g_file_read_buffer, bytes_read);
+        /* Copy to audio buffer */
+        if (g_audio_format.is_float) {
+            /* Convert 32-bit Float to 32-bit Integer */
+            float *in_samples = (float *)g_file_read_buffer;
+            int32_t *out_samples = (int32_t *)(dest + total_read);
+            uint32_t sample_count = bytes_read / 4;
+            
+            for (uint32_t i = 0; i < sample_count; i++) {
+                float s = in_samples[i];
+                /* Clip to -1.0 to 1.0 */
+                if (s > 1.0f) s = 1.0f;
+                else if (s < -1.0f) s = -1.0f;
+                
+                /* Convert to 32-bit integer (scale by 2^31 - 1) */
+                out_samples[i] = (int32_t)(s * 2147483647.0f);
+            }
+        } else {
+            /* Direct copy for Integer format */
+            g_memcpy_count++;  /* Track before memcpy */
+            memcpy(dest + total_read, g_file_read_buffer, bytes_read);
+        }
+        
         total_read += bytes_read;
         
         /* Check for EOF */

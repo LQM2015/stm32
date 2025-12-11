@@ -20,18 +20,24 @@
 static int shell_audio_play(int argc, char *argv[])
 {
     if (argc < 2) {
-        shellPrint(shellGetCurrent(), "Usage: play <filepath> [loop]\r\n");
+        shellPrint(shellGetCurrent(), "Usage: play <filepath> [loop] [float]\r\n");
         shellPrint(shellGetCurrent(), "Example: play /1khz.pcm\r\n");
         shellPrint(shellGetCurrent(), "Example: play /1khz.pcm loop\r\n");
+        shellPrint(shellGetCurrent(), "Example: play /1khz.pcm float\r\n");
         return -1;
     }
     
     const char *filepath = argv[1];
     bool loop = false;
+    bool is_float = false;
     
-    /* Check for loop option */
-    if (argc >= 3 && strcmp(argv[2], "loop") == 0) {
-        loop = true;
+    /* Check for options */
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "loop") == 0) {
+            loop = true;
+        } else if (strcmp(argv[i], "float") == 0) {
+            is_float = true;
+        }
     }
     
     /* Default format: 32-bit, 48kHz, stereo */
@@ -39,6 +45,7 @@ static int shell_audio_play(int argc, char *argv[])
         .sample_rate = 48000,
         .bits_per_sample = 32,
         .channels = 2,
+        .is_float = is_float,
     };
     
     /* Initialize audio player if needed */
@@ -211,15 +218,15 @@ static int shell_audio_help(int argc, char *argv[])
     
     shellPrint(shellGetCurrent(), "\r\n");
     shellPrint(shellGetCurrent(), "========== Audio Player Commands ==========\r\n");
-    shellPrint(shellGetCurrent(), "  play <file> [loop] - Play PCM audio file\r\n");
-    shellPrint(shellGetCurrent(), "  stop               - Stop playback\r\n");
-    shellPrint(shellGetCurrent(), "  pause              - Pause playback\r\n");
-    shellPrint(shellGetCurrent(), "  resume             - Resume playback\r\n");
-    shellPrint(shellGetCurrent(), "  astatus            - Show player status\r\n");
-    shellPrint(shellGetCurrent(), "  play1k             - Play 1kHz test tone\r\n");
+    shellPrint(shellGetCurrent(), "  play <file> [loop] [float] - Play PCM audio file\r\n");
+    shellPrint(shellGetCurrent(), "  stop                       - Stop playback\r\n");
+    shellPrint(shellGetCurrent(), "  pause                      - Pause playback\r\n");
+    shellPrint(shellGetCurrent(), "  resume                     - Resume playback\r\n");
+    shellPrint(shellGetCurrent(), "  astatus                    - Show player status\r\n");
+    shellPrint(shellGetCurrent(), "  play1k                     - Play 1kHz test tone\r\n");
     shellPrint(shellGetCurrent(), "============================================\r\n");
     shellPrint(shellGetCurrent(), "\r\n");
-    shellPrint(shellGetCurrent(), "Supported format: 32-bit, 48kHz, Stereo PCM\r\n");
+    shellPrint(shellGetCurrent(), "Supported format: 32-bit, 48kHz, Stereo PCM (Int or Float)\r\n");
     shellPrint(shellGetCurrent(), "\r\n");
     
     return 0;
