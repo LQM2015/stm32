@@ -78,6 +78,7 @@ static volatile uint32_t g_task_fill_count = 0;  /* Track successful buffer fill
 static volatile uint32_t g_task_timeout_count = 0;  /* Track queue receive timeouts */
 static volatile uint32_t g_file_read_count = 0;   /* Track f_read calls */
 static volatile uint32_t g_memcpy_count = 0;      /* Track memcpy calls */
+static volatile bool g_audio_underrun_flag = false; /* Flag for ISR underrun detection */
 static volatile uint32_t g_queue_send_count = 0;  /* Track queue send from ISR */
 static volatile uint32_t g_queue_send_fail = 0;   /* Track queue send failures */
 
@@ -366,6 +367,11 @@ void audio_player_half_transfer_callback(void)
         return;
     }
     
+    /* Check for underrun: if queue is not empty, task is behind */
+    if (uxQueueMessagesWaitingFromISR(g_buffer_queue) > 0) {
+        g_audio_underrun_flag = true;
+    }
+
     /* Send message to fill first half of buffer */
     BufferFillMsg_t msg = { .buffer_index = 0 };
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -390,6 +396,11 @@ void audio_player_transfer_complete_callback(void)
         return;
     }
     
+    /* Check for underrun: if queue is not empty, task is behind */
+    if (uxQueueMessagesWaitingFromISR(g_buffer_queue) > 0) {
+        g_audio_underrun_flag = true;
+    }
+
     /* Send message to fill second half of buffer */
     BufferFillMsg_t msg = { .buffer_index = 1 };
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -424,12 +435,28 @@ static void audio_player_task(void *pvParameters)
             
             g_task_fill_count++;  /* Count BEFORE fill to detect if stuck in fill_buffer */
             
+            /* Check for underrun flag from ISR */
+            if (g_audio_underrun_flag) {
+                SHELL_LOG_AUDIO_WARNING("Audio Underflow: DMA interrupt overlapped with pending task");
+                g_audio_underrun_flag = false;
+            }
+
             /* Fill the requested buffer half */
             uint32_t *buffer = (msg.buffer_index == 0) ? 
                                &g_audio_buffer[0] : 
                                &g_audio_buffer[AUDIO_BUFFER_SIZE];
             
+            uint32_t start_time = HAL_GetTick();
             int fill_ret = fill_buffer(buffer, AUDIO_BUFFER_SAMPLES);
+            uint32_t elapsed = HAL_GetTick() - start_time;
+
+            /* Check for processing overload */
+            /* Calculate max allowed time based on sample rate */
+            uint32_t max_time = (AUDIO_BUFFER_SAMPLES * 1000) / g_audio_format.sample_rate;
+            /* Allow 5ms margin */
+            if (elapsed > (max_time - 5)) {
+                 SHELL_LOG_AUDIO_WARNING("Audio Overload: Processing took %lu ms (limit %lu ms)", elapsed, max_time);
+            }
             
             if (fill_ret < 0 && !g_loop_enabled) {
                 SHELL_LOG_AUDIO_INFO("End of file reached");
@@ -492,7 +519,8 @@ static int fill_buffer(uint32_t *buffer, uint32_t samples)
                 else if (s < -1.0f) s = -1.0f;
                 
                 /* Convert to 32-bit integer (scale by 2^31 - 1) */
-                out_samples[i] = (int32_t)(s * 2147483647.0f);
+                /* Volume reduced to 30% (attenuation -70%) */
+                out_samples[i] = (int32_t)(s * 2147483647.0f * 0.1f);
             }
         } else {
             /* Direct copy for Integer format */

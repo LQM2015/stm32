@@ -25,6 +25,10 @@ extern "C" {
 #define AUDIO_BUFFER_SAMPLES    4096
 #define AUDIO_BUFFER_SIZE       (AUDIO_BUFFER_SAMPLES * 2)  /* 32-bit stereo = 2 x uint32_t per sample */
 
+/* Duration of half buffer in ms (approx) for monitoring */
+/* 4096 samples / 48000 Hz * 1000 = 85.33 ms */
+#define AUDIO_BUFFER_HALF_DURATION_MS 85
+
 /********************************************
  * Audio Player States
  *******************************************/
