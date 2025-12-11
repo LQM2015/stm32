@@ -3,12 +3,32 @@
 
 
 #include <stdbool.h>
+#include <string.h>
 
 #include "main.h"
 #include "shell_log.h"
 #include "FreeRTOS.h"
 #include "task.h"
 /*awinic:add and delete main.h according to the actual needs*/
+
+/********************************************
+ * Memory allocation: Redirect to FreeRTOS memory management
+ * pvPortMalloc/vPortFree are thread-safe in FreeRTOS
+ *******************************************/
+#define malloc(size)        pvPortMalloc(size)
+#define free(ptr)           vPortFree(ptr)
+
+/* calloc implementation using pvPortMalloc + memset */
+static inline void *aw_calloc(size_t nmemb, size_t size)
+{
+    size_t total = nmemb * size;
+    void *ptr = pvPortMalloc(total);
+    if (ptr != NULL) {
+        memset(ptr, 0, total);
+    }
+    return ptr;
+}
+#define calloc(nmemb, size) aw_calloc(nmemb, size)
 
 /********************************************
  * delay: Modify delay function according to different platform

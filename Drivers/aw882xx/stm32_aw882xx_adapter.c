@@ -523,28 +523,10 @@ int aw882xx_adapter_set_volume(uint32_t volume)
 }
 
 /********************************************
- * I2S DMA Callbacks (optional)
+ * I2S DMA Callbacks
+ * Note: HAL_I2S_TxCpltCallback and HAL_I2S_TxHalfCpltCallback
+ * are defined in i2s.c for audio player use
  *******************************************/
-
-/**
- * @brief I2S TX complete callback
- */
-void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s)
-{
-    if (hi2s->Instance == SPI2) {
-        /* Handle TX complete - implement circular buffer logic here if needed */
-    }
-}
-
-/**
- * @brief I2S TX half complete callback
- */
-void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
-{
-    if (hi2s->Instance == SPI2) {
-        /* Handle TX half complete - implement double buffer logic here if needed */
-    }
-}
 
 /**
  * @brief I2S error callback

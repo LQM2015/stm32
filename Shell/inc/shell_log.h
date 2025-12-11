@@ -81,6 +81,7 @@ typedef enum {
     SHELL_LOG_MODULE_UART,        /*!< UART communication module */
     SHELL_LOG_MODULE_FATFS,       /*!< File system module */
     SHELL_LOG_MODULE_AW882XX,     /*!< AW882XX SmartPA driver module */
+    SHELL_LOG_MODULE_AUDIO,       /*!< Audio player module */
     SHELL_LOG_MODULE_USER,        /*!< User application module */
     SHELL_LOG_MODULE_MAX          /*!< Maximum module count */
 } ShellLogModule_t;

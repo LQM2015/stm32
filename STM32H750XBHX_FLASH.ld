@@ -194,6 +194,15 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM_D1
 
+  /* DMA accessible memory in D2 domain (required for DMA1/DMA2 on STM32H7) */
+  .RAM_D2 (NOLOAD) :
+  {
+    . = ALIGN(4);
+    *(.RAM_D2)
+    *(.RAM_D2*)
+    . = ALIGN(4);
+  } >RAM_D2
+
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
   {

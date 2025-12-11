@@ -45,7 +45,7 @@ gpio_config_t g_gpio_config = {
     .trigger_port = GPIOB,
     .trigger_pin = GPIO_PIN_12,   //2700 GPIO03
     .detect_port = GPIOB,
-    .detect_pin = GPIO_PIN_6,    //2700 GPIO76
+    .detect_pin = GPIO_PIN_9,    //2700 GPIO76
 };
 
 /* =================================================================== */

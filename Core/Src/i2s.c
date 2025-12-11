@@ -120,11 +120,14 @@ void HAL_I2S_MspInit(I2S_HandleTypeDef* i2sHandle)
     hdma_spi2_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
     hdma_spi2_rx.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_spi2_rx.Init.MemInc = DMA_MINC_ENABLE;
-    hdma_spi2_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
-    hdma_spi2_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    hdma_spi2_rx.Init.Mode = DMA_NORMAL;
+    hdma_spi2_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+    hdma_spi2_rx.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
+    hdma_spi2_rx.Init.Mode = DMA_CIRCULAR;
     hdma_spi2_rx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
-    hdma_spi2_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+    hdma_spi2_rx.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
+    hdma_spi2_rx.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
+    hdma_spi2_rx.Init.MemBurst = DMA_MBURST_SINGLE;
+    hdma_spi2_rx.Init.PeriphBurst = DMA_PBURST_SINGLE;
     if (HAL_DMA_Init(&hdma_spi2_rx) != HAL_OK)
     {
       Error_Handler();
@@ -140,7 +143,7 @@ void HAL_I2S_MspInit(I2S_HandleTypeDef* i2sHandle)
     hdma_spi2_tx.Init.MemInc = DMA_MINC_ENABLE;
     hdma_spi2_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
     hdma_spi2_tx.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
-    hdma_spi2_tx.Init.Mode = DMA_NORMAL;
+    hdma_spi2_tx.Init.Mode = DMA_CIRCULAR;
     hdma_spi2_tx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
     hdma_spi2_tx.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
     hdma_spi2_tx.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
@@ -198,5 +201,50 @@ void HAL_I2S_MspDeInit(I2S_HandleTypeDef* i2sHandle)
 }
 
 /* USER CODE BEGIN 1 */
+#include "audio_player.h"
+
+/**
+ * @brief I2S Tx Half Transfer completed callback (for Tx only mode)
+ * @param hi2s: I2S handle
+ */
+void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+    if (hi2s->Instance == SPI2) {
+        audio_player_half_transfer_callback();
+    }
+}
+
+/**
+ * @brief I2S Tx Transfer completed callback (for Tx only mode)
+ * @param hi2s: I2S handle
+ */
+void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+    if (hi2s->Instance == SPI2) {
+        audio_player_transfer_complete_callback();
+    }
+}
+
+/**
+ * @brief I2S TxRx Half Transfer completed callback (for Full-Duplex mode)
+ * @param hi2s: I2S handle
+ */
+void HAL_I2SEx_TxRxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+    if (hi2s->Instance == SPI2) {
+        audio_player_half_transfer_callback();
+    }
+}
+
+/**
+ * @brief I2S TxRx Transfer completed callback (for Full-Duplex mode)
+ * @param hi2s: I2S handle
+ */
+void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+    if (hi2s->Instance == SPI2) {
+        audio_player_transfer_complete_callback();
+    }
+}
 
 /* USER CODE END 1 */
