@@ -25,7 +25,8 @@ extern "C" {
 #define LWK_OTA_BIN_NAME_LEN         128
 
 /* OTA Package File Path - adjust according to your file system */
-#define OTA_PACKAGE_PATH             "0:/Athlics_20251208153051.bin"
+extern char g_ota_package_path[256];
+#define OTA_PACKAGE_PATH             g_ota_package_path
 
 /* OTA Protocol Commands */
 #define OTA_EMPTY_CMD                0x00  /*!< Empty frame command */
@@ -152,6 +153,12 @@ int spi_protocol_ota_read_file_data(const char *filename, uint32_t offset,
  * @return true if exists and matches, false otherwise
  */
 bool spi_protocol_ota_check_package_exist(uint32_t ota_size, const char *ota_name);
+
+/**
+ * @brief Find the latest OTA package on the file system
+ * @return 0 on success, negative on error
+ */
+int spi_protocol_ota_find_latest_package(void);
 
 /* =================================================================== */
 /* OTA Upgrade Protocol (Application to OTA Boot)                    */

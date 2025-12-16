@@ -32,6 +32,9 @@ extern osMessageQueueId_t gpio_spi_event_queue;
 
 static uint32_t g_ota_sequence_counter = 3000;
 
+/* OTA Package Path */
+char g_ota_package_path[256] = {0};
+
 /* File information cache */
 static OTA_FILE_INFO_T g_cached_ota_info = {0};
 static bool g_ota_info_loaded = false;
@@ -87,6 +90,11 @@ int spi_protocol_ota_load_file_info(OTA_FILE_INFO_T *ota_info)
         return 0;
     }
     
+    // Ensure package path is set
+    if (g_ota_package_path[0] == 0) {
+        spi_protocol_ota_find_latest_package();
+    }
+
     // Get file size
     size_t file_size;
     ret = platform_file_stat(OTA_PACKAGE_PATH, &file_size);
@@ -243,10 +251,72 @@ int spi_protocol_ota_read_file_data(const char *filename, uint32_t offset,
     return read_size;
 }
 
+int spi_protocol_ota_find_latest_package(void)
+{
+    DIR dir;
+    FILINFO fno;
+    FRESULT res;
+    char latest_timestamp_str[15] = {0};
+    char latest_filename[128] = {0};
+    bool found = false;
+
+    TRACE_INFO("OTA: Scanning for latest package...");
+
+    res = f_opendir(&dir, "0:/");
+    if (res != FR_OK) {
+        TRACE_ERROR("OTA: Failed to open root directory, res=%d", res);
+        return -1;
+    }
+
+    while (1) {
+        res = f_readdir(&dir, &fno);
+        if (res != FR_OK || fno.fname[0] == 0) break;
+
+        if (fno.fattrib & AM_DIR) continue;
+
+        // Check prefix "Athlics_" and suffix ".bin"
+        // Filename format: Athlics_YYYYMMDDHHMMSS.bin
+        if (strncmp(fno.fname, "Athlics_", 8) == 0 && strstr(fno.fname, ".bin")) {
+            // Extract timestamp part (14 chars starting at index 8)
+            if (strlen(fno.fname) >= 22) {
+                char current_timestamp_str[15] = {0};
+                memcpy(current_timestamp_str, &fno.fname[8], 14);
+                
+                // Compare timestamps (string comparison works for YYYYMMDDHHMMSS)
+                if (!found || strcmp(current_timestamp_str, latest_timestamp_str) > 0) {
+                    strncpy(latest_timestamp_str, current_timestamp_str, 14);
+                    strncpy(latest_filename, fno.fname, sizeof(latest_filename)-1);
+                    found = true;
+                }
+            }
+        }
+    }
+    f_closedir(&dir);
+
+    if (found) {
+        snprintf(g_ota_package_path, sizeof(g_ota_package_path), "0:/%s", latest_filename);
+        TRACE_INFO("OTA: Found latest package: %s", g_ota_package_path);
+        return 0;
+    }
+    
+    TRACE_WARNING("OTA: No valid package found");
+    return -1;
+}
+
 bool spi_protocol_ota_check_package_exist(uint32_t ota_size, const char *ota_name)
 {
     size_t file_size;
     int ret;
+    
+    // If path is empty, try to find it now
+    if (g_ota_package_path[0] == 0) {
+        spi_protocol_ota_find_latest_package();
+    }
+
+    if (g_ota_package_path[0] == 0) {
+        TRACE_ERROR("OTA: No package path set");
+        return false;
+    }
     
     if (!ota_name) {
         return false;
@@ -255,7 +325,7 @@ bool spi_protocol_ota_check_package_exist(uint32_t ota_size, const char *ota_nam
     // Get file size
     ret = platform_file_stat(OTA_PACKAGE_PATH, &file_size);
     if (ret != 0) {
-        TRACE_ERROR("OTA: Package file not found");
+        TRACE_ERROR("OTA: Package file not found: %s", OTA_PACKAGE_PATH);
         return false;
     }
     
@@ -270,12 +340,17 @@ bool spi_protocol_ota_check_package_exist(uint32_t ota_size, const char *ota_nam
     // Compare
     bool name_match = (strcmp(ota_name, filename) == 0);
     bool size_match = (file_size == ota_size);
-    TRACE_INFO("ORIGINAL NAME:%s size:%d", filename, file_size);
-    TRACE_INFO("OTA: Package check - name=%s, size=%s", 
-               name_match ? "MATCH" : "MISMATCH",
-               size_match ? "MATCH" : "MISMATCH");
+    TRACE_INFO("OTA: Package check - Local: %s (%d), Remote Request: %s (%d)", 
+               filename, file_size, ota_name, ota_size);
     
-    return (name_match && size_match);
+    if (!name_match || !size_match) {
+        TRACE_WARNING("OTA: Mismatch detected but using local latest file. Name match: %d, Size match: %d", 
+                      name_match, size_match);
+    }
+    
+    // Always return true if we have a valid file, regardless of request mismatch
+    // This enables "automatic matching" behavior requested by user
+    return true;
 }
 
 /* =================================================================== */
