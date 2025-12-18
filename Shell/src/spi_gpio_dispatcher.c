@@ -73,17 +73,18 @@ int spi_gpio_dispatcher_init(void)
     __HAL_RCC_GPIOB_CLK_ENABLE();
     
     // Configure PB12 (trigger pin) as external interrupt
-    GPIO_InitStruct.Pin = GPIO_PIN_12;
+    GPIO_InitStruct.Pin = g_gpio_config.trigger_pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;  // Falling edge trigger
     GPIO_InitStruct.Pull = GPIO_PULLUP;           // Pull-up resistor
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    HAL_GPIO_Init(g_gpio_config.trigger_port, &GPIO_InitStruct);
     
     // Configure PB6 (detect pin) as input
-    GPIO_InitStruct.Pin = GPIO_PIN_6;
+    GPIO_InitStruct.Pin = g_gpio_config.detect_pin;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;       // Input mode
     GPIO_InitStruct.Pull = GPIO_NOPULL;           // No pull-up/down
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    HAL_GPIO_Init(g_gpio_config.detect_port, &GPIO_InitStruct);
     
+
     // Enable EXTI15_10 interrupt for PB12
     // Priority must be >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5)
     // to safely call FreeRTOS APIs from ISR
