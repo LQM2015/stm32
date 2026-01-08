@@ -31,6 +31,8 @@ extern SD_HandleTypeDef hsd1;
 /* Private variables ---------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 static AudioPcmMode_t s_audio_mode = AUDIO_MODE_I2S_STEREO;
+static volatile bool s_sai_recovery_needed = false;
+static volatile bool s_sai_is_recovering = false;
 
 static const AudioPcmConfig_t s_pcm_profiles[AUDIO_MODE_COUNT] = {
     [AUDIO_MODE_I2S_STEREO] = {
@@ -89,6 +91,10 @@ typedef struct {
 
 static osMessageQueueId_t audio_data_queue = NULL;
 static osThreadId_t audio_process_thread_id = NULL;
+static osThreadId_t audio_event_thread_id = NULL;
+
+// Use thread flags instead of event flags for reliable ISR-to-thread signaling
+#define AUDIO_THREAD_FLAG_RECOVERY_REQ  (1U << 0)
 
 // 降低SAI回调打印频次的计数器
 static uint32_t rx_complete_counter = 0;
@@ -108,6 +114,7 @@ static void reset_sai_timing_status(void);
 void audio_recorder_process(void);
 static int check_sd_card_status(void);
 static void audio_process_thread(void *argument);
+static void audio_event_thread(void *argument);
 static int verify_file_exists(const char* filepath);
 static void measure_external_clock_frequency(void);
 
@@ -711,6 +718,20 @@ int audio_recorder_init(void)
     }
     SHELL_LOG_USER_INFO("Audio data queue created with size: %d", AUDIO_QUEUE_SIZE);
 
+    // Create audio event thread (Must be higher priority than AudioProcess to preempt during recovery)
+    // Uses osThreadFlags for ISR-safe signaling (more reliable than osEventFlags from ISR)
+    const osThreadAttr_t audio_event_thread_attributes = {
+        .name = "AudioEvent",
+        .stack_size = 1024 * 2, 
+        .priority = (osPriority_t) osPriorityRealtime,  // Highest priority to ensure immediate response
+    };
+    audio_event_thread_id = osThreadNew(audio_event_thread, NULL, &audio_event_thread_attributes);
+    if (audio_event_thread_id == NULL) {
+        SHELL_LOG_USER_ERROR("Failed to create audio event thread");
+        return -1;
+    }
+    SHELL_LOG_USER_INFO("Audio event thread created, thread_id=%p", audio_event_thread_id);
+
     // Create audio processing thread
     const osThreadAttr_t audio_process_thread_attributes = {
         .name = "AudioProcess",
@@ -1297,6 +1318,91 @@ void audio_recorder_measure_clock(void)
 }
 
 /**
+ * @brief Audio event/recovery handling thread
+ */
+static void audio_event_thread(void *argument) 
+{
+    (void)argument;
+    SHELL_LOG_USER_INFO("Audio event thread started");
+    
+    // Quick initial delay to ensure system is stable
+    osDelay(100);
+    SHELL_LOG_USER_INFO("Audio event thread entering main loop (using ThreadFlags)");
+    
+    for (;;) {
+        // Use osThreadFlagsWait - more reliable for ISR-to-thread signaling
+        // This waits on flags set directly to THIS thread via osThreadFlagsSet()
+        uint32_t flags = osThreadFlagsWait(AUDIO_THREAD_FLAG_RECOVERY_REQ, 
+                                           osFlagsWaitAny, 
+                                           osWaitForever);
+        
+        // Check for errors
+        if ((int32_t)flags < 0) {
+            SHELL_LOG_USER_ERROR("osThreadFlagsWait error: 0x%08X", flags);
+            osDelay(100);
+            continue;
+        }
+        
+        SHELL_LOG_USER_INFO("Thread flags received: 0x%08X", flags);
+                                        
+        if ((flags & AUDIO_THREAD_FLAG_RECOVERY_REQ) == AUDIO_THREAD_FLAG_RECOVERY_REQ) {
+            SHELL_LOG_USER_WARNING("Executing SAI recovery in event thread...");
+            // s_sai_is_recovering is already set to true in ISR to block further errors
+            
+            // 1. Force Stop & Abort
+            HAL_SAI_DMAStop(&hsai_BlockA4);
+            HAL_SAI_Abort(&hsai_BlockA4);
+            
+            // 2. Small delay to ensure hardware reset propagates
+            osDelay(10);
+            
+            // 2.1 Re-initialize SAI block to ensure clean state
+            // Some flags are only cleared by SAI disable/enable cycle or Abort
+            // We already did abort, but let's double check if we need to release specific locks
+            // __HAL_UNLOCK(&hsai_BlockA4); // Not usually needed unless HAL is stuck
+            
+            // 3. Restart
+            SHELL_LOG_USER_INFO("Attempting HAL_SAI_Receive_DMA restart...");
+             HAL_StatusTypeDef restart_res = HAL_SAI_Receive_DMA(&hsai_BlockA4,
+                                                              (uint8_t*)audio_buffer,
+                                                              audio_recorder_get_total_buffer_samples());
+
+            if (restart_res == HAL_OK) {
+                SHELL_LOG_USER_INFO("SAI reception restarted successfully in event thread");
+                
+                // Force state back to RECORDING just in case it was changed
+                if (recorder.state != AUDIO_REC_RECORDING) {
+                    SHELL_LOG_USER_WARNING("Restoring state to RECORDING");
+                    recorder.state = AUDIO_REC_RECORDING;
+                }
+            } else {
+                SHELL_LOG_USER_ERROR("Failed to restart SAI in event thread: %d", restart_res);
+                
+                // If direct restart fails, try a harder reset (DeInit/Init)
+                SHELL_LOG_USER_WARNING("Attempting hard reset of SAI peripheral...");
+                HAL_SAI_DeInit(&hsai_BlockA4);
+                MX_SAI4_Init();
+                restart_res = HAL_SAI_Receive_DMA(&hsai_BlockA4,
+                                                              (uint8_t*)audio_buffer,
+                                                              audio_recorder_get_total_buffer_samples());
+                if (restart_res == HAL_OK) {
+                     SHELL_LOG_USER_INFO("SAI restarted after hard reset");
+                     recorder.state = AUDIO_REC_RECORDING;
+                } else {
+                     SHELL_LOG_USER_ERROR("Hard reset failed: %d. Stopping recorder.", restart_res);
+                     // If we really can't restart, we must stop.
+                     audio_recorder_stop();
+                     recorder.state = AUDIO_REC_ERROR;
+                }
+            }
+            
+            // Recovery complete, allow errors again
+            s_sai_is_recovering = false;
+        }
+    }
+}
+
+/**
  * @brief Audio processing thread function
  * @param argument: Not used
  */
@@ -1308,7 +1414,7 @@ static void audio_process_thread(void *argument)
     SHELL_LOG_USER_INFO("Audio processing thread started");
     
     for (;;) {
-        // Wait for audio data from the queue (blocking)
+        // Wait for audio data from the queue (blocking forever, so no timeouts when idle)
         osStatus_t status = osMessageQueueGet(audio_data_queue, &audio_item, NULL, osWaitForever);
         
         if (status == osOK) {
@@ -1331,17 +1437,14 @@ static void audio_process_thread(void *argument)
                                         audio_item.is_half_buffer ? "First half" : "Second half");
                 } else {
                     // 写入成功
-                    // SHELL_LOG_USER_DEBUG("%s buffer written successfully",
-                    //                     audio_item.is_half_buffer ? "First half" : "Second half");
                 }
             } else {
                 // 不在录音状态，丢弃数据
                 SHELL_LOG_USER_DEBUG("Discarding audio data - not in recording state (state=%d)", recorder.state);
             }
         } else {
+            // Should not happen with osWaitForever unless queue is deleted
             SHELL_LOG_USER_WARNING("Failed to get audio data from queue, status: %d", status);
-            // 短暂延时后继续
-            osDelay(1);
         }
     }
 }
@@ -1456,33 +1559,74 @@ void audio_recorder_error_callback(void)
 {
     SHELL_LOG_USER_ERROR("SAI error callback triggered! (state=%d)", recorder.state);
     
-    if (recorder.state == AUDIO_REC_RECORDING) {
-        SHELL_LOG_USER_ERROR("SAI error during recording, stopping...");
+    // Check if ErrorCode is NONE. If so, this is likely a spurious callback
+    // (possibly triggered by the recovery mechanism clearing flags and restarting DMA)
+    if (hsai_BlockA4.ErrorCode == HAL_SAI_ERROR_NONE) {
+        SHELL_LOG_USER_WARNING("Spurious SAI error callback (ErrorCode=0). Ignoring.");
+        return;
+    }
+
+    // Check if recovery is already scheduled or in progress
+    // If so, we acknowledge the error but don't let it stop the recording state
+    // because the recovery thread is about to reset everything anyway.
+    if (s_sai_is_recovering) {
+        SHELL_LOG_USER_WARNING("SAI error 0x%08X occurred while recovery active. Ignoring.", (unsigned int)hsai_BlockA4.ErrorCode);
         
-        // Print detailed status at the moment of error
-        debug_sai_status();
+        // Clear flags to prevent infinite ISR loop if applicable
+        __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_LFSDET | SAI_FLAG_AFSDET | SAI_FLAG_CNRDY | SAI_FLAG_FREQ | SAI_FLAG_WCKCFG | SAI_FLAG_OVRUDR);
+        hsai_BlockA4.ErrorCode = HAL_SAI_ERROR_NONE;
+        return;
+    }
+
+    if (recorder.state == AUDIO_REC_RECORDING) {
+        // Only log detailed status if we are not suppressing it logic
+        // But here we are fresh error.
         
         // Check and provide specific error guidance
         if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_LFSDET) {
             SHELL_LOG_USER_ERROR("Late Frame Sync detected");
-            SHELL_LOG_USER_ERROR("Suggestions:");
-            SHELL_LOG_USER_ERROR("1. Check external I2S clock stability");
-            SHELL_LOG_USER_ERROR("2. Verify SAI configuration matches hardware");
-            SHELL_LOG_USER_ERROR("3. Consider reducing DMA transfer size");
-            SHELL_LOG_USER_ERROR("4. Check for SD card write bottlenecks");
+            // ... (keep existing logs) 
             
             // Try to clear the error and continue if possible
             __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_LFSDET);
             hsai_BlockA4.ErrorCode &= ~HAL_SAI_ERROR_LFSDET;
             
-            // Don't immediately stop - try to recover
             SHELL_LOG_USER_WARNING("Attempting to continue recording after LFSDET error");
             return;
         }
-        if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_AFSDET) {
-            SHELL_LOG_USER_ERROR("Anticipated Frame Sync detected - frame timing issue");
-            SHELL_LOG_USER_ERROR("Suggestion: Verify SAI frame configuration and external codec");
+
+        // Recoverable Errors: AFSDET and DMA Error
+        if ((hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_AFSDET) || (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_DMA)) {
+            
+            if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_AFSDET) {
+                 SHELL_LOG_USER_ERROR("Anticipated Frame Sync detected - frame timing issue");
+                 __HAL_SAI_CLEAR_FLAG(&hsai_BlockA4, SAI_FLAG_AFSDET);
+                 hsai_BlockA4.ErrorCode &= ~HAL_SAI_ERROR_AFSDET;
+            }
+            if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_DMA) {
+                 SHELL_LOG_USER_ERROR("SAI DMA Error detected");
+                 hsai_BlockA4.ErrorCode &= ~HAL_SAI_ERROR_DMA;
+            }
+
+            SHELL_LOG_USER_WARNING("Requesting SAI recovery via thread flag...");
+            
+            // Set global flag IMMEDIATELY to block subsequent error callbacks (like DMA error following AFSDET)
+            s_sai_is_recovering = true;
+            
+            // Signal the event thread directly using thread flags (ISR-safe)
+            if (audio_event_thread_id != NULL) {
+                uint32_t set_result = osThreadFlagsSet(audio_event_thread_id, AUDIO_THREAD_FLAG_RECOVERY_REQ);
+                if ((int32_t)set_result < 0) {
+                    SHELL_LOG_USER_ERROR("osThreadFlagsSet failed: 0x%08X", (unsigned int)set_result);
+                } else {
+                    SHELL_LOG_USER_DEBUG("osThreadFlagsSet success, flags=0x%08X", (unsigned int)set_result);
+                }
+            } else {
+                SHELL_LOG_USER_ERROR("audio_event_thread_id is NULL!");
+            }
+            return; // Exit without stopping the recorder state
         }
+        
         if (hsai_BlockA4.ErrorCode & HAL_SAI_ERROR_OVR) {
             SHELL_LOG_USER_ERROR("SAI Overrun - data not read fast enough");
             SHELL_LOG_USER_ERROR("Suggestion: Check DMA configuration and buffer handling");
