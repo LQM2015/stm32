@@ -102,7 +102,15 @@ DSTATUS USER_status (
   if (pdrv != 0) return STA_NOINIT; /* We only support one drive */
 
   Stat = STA_NOINIT;
-  if (HAL_SD_GetCardState(&hsd1) == HAL_SD_CARD_TRANSFER)
+  HAL_SD_CardStateTypeDef card_state = HAL_SD_GetCardState(&hsd1);
+  
+  /* Accept TRANSFER state (normal ready state) and also PROGRAMMING/SENDING/RECEIVING
+   * states which indicate the card is busy with an ongoing operation but still valid.
+   * Only report NOINIT for truly invalid states like DISCONNECTED or ERROR. */
+  if (card_state == HAL_SD_CARD_TRANSFER ||
+      card_state == HAL_SD_CARD_PROGRAMMING ||
+      card_state == HAL_SD_CARD_SENDING ||
+      card_state == HAL_SD_CARD_RECEIVING)
   {
     Stat &= ~STA_NOINIT;
   }

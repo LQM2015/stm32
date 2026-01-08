@@ -11,12 +11,16 @@
 #include "shell_log.h"
 #include "fs_manager.h"
 #include "diskio.h"  // For SD card status checking
+#include "sdmmc.h"   // For SD card handle
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "cmsis_os.h"
 #include "stm32h7xx_hal.h" // For SCB_InvalidateDCache_by_Addr
+
+/* External variables from sdmmc.c */
+extern SD_HandleTypeDef hsd1;
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -314,7 +318,18 @@ static int write_audio_data(uint16_t* data, uint32_t size)
         recorder.write_in_progress = false;
         return -1;
     }
-    vTaskDelay(4); // 延时以确保文件系统稳定
+    
+    // 等待SD卡就绪再写入（最多等待100ms）
+    uint32_t wait_start = HAL_GetTick();
+    while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER) {
+        if ((HAL_GetTick() - wait_start) > 100) {
+            SHELL_LOG_USER_ERROR("SD card not ready for write (timeout)");
+            recorder.write_in_progress = false;
+            return -1;
+        }
+        vTaskDelay(1); // 短暂等待
+    }
+    
     // 直接写入，移除中断禁用避免影响SD卡DMA
     res = f_write(&g_audio_file, data, size, &bytes_written);
     
