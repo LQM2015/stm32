@@ -61,7 +61,34 @@ typedef struct {
 // 改为在源文件中定义为static，不需要extern声明
 
 /* Exported constants --------------------------------------------------------*/
-#define AUDIO_SUPPORTED_BIT_DEPTH      16U
+/** 
+ *  User Configurable Macros 
+ *  Define these in your toolchain preprocessor options or main.h to override.
+ */
+#ifndef AUDIO_CFG_SAMPLE_RATE_HZ
+#define AUDIO_CFG_SAMPLE_RATE_HZ       (48000U)
+#endif
+
+#ifndef AUDIO_CFG_CHANNELS_COUNT
+#define AUDIO_CFG_CHANNELS_COUNT       (2U)
+#endif
+
+#ifndef AUDIO_CFG_BIT_DEPTH_BITS
+#define AUDIO_CFG_BIT_DEPTH_BITS       (16U)
+#endif
+
+/* Helper to determine datasize constant based on bits */
+#if (AUDIO_CFG_BIT_DEPTH_BITS == 16)
+    #define AUDIO_CFG_SAI_DATASIZE     SAI_PROTOCOL_DATASIZE_16BIT
+#elif (AUDIO_CFG_BIT_DEPTH_BITS == 24)
+    #define AUDIO_CFG_SAI_DATASIZE     SAI_PROTOCOL_DATASIZE_24BIT
+#elif (AUDIO_CFG_BIT_DEPTH_BITS == 32)
+    #define AUDIO_CFG_SAI_DATASIZE     SAI_PROTOCOL_DATASIZE_32BIT
+#else
+    #error "Audio Recorder: Unsupported Audio Bit Depth Configured"
+#endif
+
+#define AUDIO_SUPPORTED_BIT_DEPTH      AUDIO_CFG_BIT_DEPTH_BITS
 #define AUDIO_MAX_CHANNELS             8U
 #define AUDIO_DMA_BUFFER_FRAMES        512U
 

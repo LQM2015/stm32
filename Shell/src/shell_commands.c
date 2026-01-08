@@ -1028,20 +1028,37 @@ int cmd_ls(int argc, char *argv[])
         // 跳过隐藏文件（除非使用-a选项）
         if (!show_all && fno.fname[0] == '.') continue;
         
+        // 修复乱码问题：清理文件名中的非打印字符
+        for (int i = 0; fno.fname[i]; i++) {
+            if (fno.fname[i] < ' ' || fno.fname[i] > '~') {
+                fno.fname[i] = '?';
+            }
+        }
+
+        char *name_to_print = fno.fname;
+        char name_buffer[300];
+#if defined(_USE_LFN) && (_USE_LFN > 0)
+        if (fno.altname[0]) {
+             snprintf(name_buffer, sizeof(name_buffer), "%-13s %s", fno.altname, fno.fname);
+             name_to_print = name_buffer;
+        }
+#endif
+        
         if (fno.fattrib & AM_DIR) {
             if (long_format) {
-                SHELL_LOG_USER_INFO("drwxr-xr-x 1 root root %8s %s", "4096", fno.fname);
+                SHELL_LOG_USER_INFO("drwxr-xr-x 1 root root %8s %s", "4096", name_to_print);
             } else {
-                SHELL_LOG_USER_INFO("%s/", fno.fname);
+                SHELL_LOG_USER_INFO("%s/", name_to_print);
             }
             dir_count++;
         } else {
             if (long_format) {
                 char permissions[] = "-rw-r--r--";
                 if (fno.fattrib & AM_RDO) permissions[2] = '-';
-                SHELL_LOG_USER_INFO("%s 1 root root %8lu %s", permissions, fno.fsize, fno.fname);
+                // FSIZE_t在exFAT启用时是64位，强转为unsigned long以匹配%lu格式，避免64位/32位参数错位导致的非法内存访问
+                SHELL_LOG_USER_INFO("%s 1 root root %8lu %s", permissions, (unsigned long)fno.fsize, name_to_print);
             } else {
-                SHELL_LOG_USER_INFO("%s", fno.fname);
+                SHELL_LOG_USER_INFO("%s", name_to_print);
             }
             file_count++;
             total_size += fno.fsize;

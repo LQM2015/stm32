@@ -35,14 +35,14 @@ static AudioPcmMode_t s_audio_mode = AUDIO_MODE_I2S_STEREO;
 static const AudioPcmConfig_t s_pcm_profiles[AUDIO_MODE_COUNT] = {
     [AUDIO_MODE_I2S_STEREO] = {
         .mode = AUDIO_MODE_I2S_STEREO,
-        .name = "I2S_STEREO",
-        .channels = 2,
-        .bit_depth = AUDIO_SUPPORTED_BIT_DEPTH,
-        .sample_rate = 16000U,
+        .name = "I2S_CONFIG",
+        .channels = AUDIO_CFG_CHANNELS_COUNT,
+        .bit_depth = AUDIO_CFG_BIT_DEPTH_BITS,
+        .sample_rate = AUDIO_CFG_SAMPLE_RATE_HZ,
         .buffer_frames = AUDIO_DMA_BUFFER_FRAMES,
         .sai_protocol = SAI_I2S_STANDARD,
-        .sai_datasize = SAI_PROTOCOL_DATASIZE_16BIT,
-        .slot_active_mask = (1U << 2) - 1U,
+        .sai_datasize = AUDIO_CFG_SAI_DATASIZE,
+        .slot_active_mask = (1U << AUDIO_CFG_CHANNELS_COUNT) - 1U,
     },
     [AUDIO_MODE_I2S_TDM] = {
         .mode = AUDIO_MODE_I2S_TDM,
@@ -52,7 +52,7 @@ static const AudioPcmConfig_t s_pcm_profiles[AUDIO_MODE_COUNT] = {
         .sample_rate = 16000U,
         .buffer_frames = AUDIO_DMA_BUFFER_FRAMES,
         .sai_protocol = SAI_PCM_SHORT,
-        .sai_datasize = SAI_PROTOCOL_DATASIZE_16BIT,
+        .sai_datasize = AUDIO_CFG_SAI_DATASIZE,
         .slot_active_mask = (1U << AUDIO_MAX_CHANNELS) - 1U,
     },
 };
