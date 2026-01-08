@@ -107,7 +107,6 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
     __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
 
     /* Peripheral interrupt init */
-    // 降低USB中断优先级，避免与音频DMA和SD卡操作冲突 (原值5->8)
     HAL_NVIC_SetPriority(OTG_HS_EP1_OUT_IRQn, 8, 0);
     HAL_NVIC_EnableIRQ(OTG_HS_EP1_OUT_IRQn);
     HAL_NVIC_SetPriority(OTG_HS_EP1_IN_IRQn, 8, 0);
@@ -360,7 +359,6 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
   hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
   hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_FULL;
-  // 临时禁用USB DMA，测试是否影响SD卡操作 (原值ENABLE->DISABLE)
   hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY;
   hpcd_USB_OTG_HS.Init.Sof_enable = ENABLE;

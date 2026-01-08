@@ -20,11 +20,10 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "sai.h"
-#include "audio_recorder.h"
-#include "shell_log.h"
 
 /* USER CODE BEGIN 0 */
-
+#include "audio_recorder.h"
+#include "shell_log.h"
 /* USER CODE END 0 */
 
 SAI_HandleTypeDef hsai_BlockA4;
