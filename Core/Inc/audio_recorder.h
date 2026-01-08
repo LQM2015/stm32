@@ -89,8 +89,10 @@ typedef struct {
 #endif
 
 #define AUDIO_SUPPORTED_BIT_DEPTH      AUDIO_CFG_BIT_DEPTH_BITS
-#define AUDIO_MAX_CHANNELS             8U
-#define AUDIO_DMA_BUFFER_FRAMES        512U
+/* Optimize max channels to configured count to save RAM (Queue Item Size) */
+#define AUDIO_MAX_CHANNELS             AUDIO_CFG_CHANNELS_COUNT
+/* Increase buffer size to reduce interrupt frequency (2048 frames @ 48kHz = ~42ms) */
+#define AUDIO_DMA_BUFFER_FRAMES        2048U
 
 #define AUDIO_DMA_FRAME_BYTES_MAX      (AUDIO_MAX_CHANNELS * (AUDIO_SUPPORTED_BIT_DEPTH / 8U))
 #define AUDIO_DMA_BUFFER_SIZE_MAX      (AUDIO_DMA_BUFFER_FRAMES * AUDIO_DMA_FRAME_BYTES_MAX)

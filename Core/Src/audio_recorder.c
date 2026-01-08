@@ -84,7 +84,8 @@ typedef struct {
     uint8_t padding[3];    // 对齐填充
 } __attribute__((aligned(32))) AudioDataItem_t;
 
-#define AUDIO_QUEUE_SIZE 6  // 减少队列深度，每个项包含4KB数据
+/* Increased queue size to handle SD card write latency (20 * 42ms ~= 840ms buffer) */
+#define AUDIO_QUEUE_SIZE 20
 
 static osMessageQueueId_t audio_data_queue = NULL;
 static osThreadId_t audio_process_thread_id = NULL;
