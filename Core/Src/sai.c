@@ -54,6 +54,9 @@ void MX_SAI4_Init(void)
   hsai_BlockA4.Init.SynchroExt = SAI_SYNCEXT_DISABLE;
   const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
   uint32_t channels = cfg ? cfg->channels : AUDIO_MAX_CHANNELS;
+  uint32_t sample_rate = cfg ? cfg->sample_rate : 16000U;
+  
+  hsai_BlockA4.Init.AudioFrequency = sample_rate;
   uint32_t protocol = cfg ? cfg->sai_protocol : SAI_PCM_SHORT;
   uint32_t datasize = cfg ? cfg->sai_datasize : SAI_PROTOCOL_DATASIZE_16BIT;
   uint32_t slot_mask = cfg ? cfg->slot_active_mask : ((1U << AUDIO_MAX_CHANNELS) - 1U);

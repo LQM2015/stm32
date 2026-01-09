@@ -117,6 +117,7 @@ void audio_recorder_measure_clock(void);  // Measure external clock frequency
 /* Runtime configuration helpers */
 AudioPcmMode_t audio_recorder_get_mode(void);
 HAL_StatusTypeDef audio_recorder_set_mode(AudioPcmMode_t mode);
+int audio_recorder_set_sample_rate(uint32_t sample_rate);
 const AudioPcmConfig_t* audio_recorder_get_pcm_config(void);
 const AudioPcmConfig_t* audio_recorder_get_pcm_config_for_mode(AudioPcmMode_t mode);
 uint32_t audio_recorder_get_channel_count(void);

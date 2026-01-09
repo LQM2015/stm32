@@ -34,7 +34,7 @@ static AudioPcmMode_t s_audio_mode = AUDIO_MODE_I2S_STEREO;
 static volatile bool s_sai_recovery_needed = false;
 static volatile bool s_sai_is_recovering = false;
 
-static const AudioPcmConfig_t s_pcm_profiles[AUDIO_MODE_COUNT] = {
+static AudioPcmConfig_t s_pcm_profiles[AUDIO_MODE_COUNT] = {
     [AUDIO_MODE_I2S_STEREO] = {
         .mode = AUDIO_MODE_I2S_STEREO,
         .name = "I2S_CONFIG",
@@ -261,6 +261,30 @@ HAL_StatusTypeDef audio_recorder_set_mode(AudioPcmMode_t mode)
     return HAL_OK;
 }
 
+int audio_recorder_set_sample_rate(uint32_t sample_rate)
+{
+    if (recorder.state != AUDIO_REC_IDLE) {
+        SHELL_LOG_USER_ERROR("Cannot set sample rate while recording (state: %d)", recorder.state);
+        return -1;
+    }
+
+    if (sample_rate == 0) {
+        SHELL_LOG_USER_ERROR("Invalid sample rate: 0");
+        return -1;
+    }
+
+    // Update the current profile configuration
+    if (s_audio_mode < AUDIO_MODE_COUNT) {
+        s_pcm_profiles[s_audio_mode].sample_rate = sample_rate;
+    }
+
+    // Update recorder instance
+    recorder.sample_rate = sample_rate;
+    
+    SHELL_LOG_USER_INFO("Sample rate set to %lu Hz", (unsigned long)sample_rate);
+    return 0;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -277,20 +301,15 @@ static void generate_filename(char* filename, size_t size)
     const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
     uint32_t channels = cfg ? cfg->channels : audio_recorder_get_channel_count();
     uint32_t bit_depth = cfg ? cfg->bit_depth : audio_recorder_get_bit_depth();
-    uint32_t sample_rate = cfg ? cfg->sample_rate : audio_recorder_get_sample_rate();
+    uint32_t sample_rate = recorder.sample_rate != 0 ? recorder.sample_rate : (cfg ? cfg->sample_rate : 16000);
     
     snprintf(filename, size, "audio_%dch_%dbit_%dHz_%03lu.pcm", 
              (int)channels, (int)bit_depth, (int)sample_rate, file_counter);
 }
 
+
 /**
  * @brief Write audio data to SD card
- * @param data: Audio data buffer
- * @param size: Data size in bytes
- * @retval 0: Success, -1: Error
- */
-/**
- * @brief Write audio data to SD card with periodic sync
  * @param data: Audio data buffer
  * @param size: Data size in bytes
  * @retval 0: Success, -1: Error
@@ -804,6 +823,8 @@ int audio_recorder_reset(void)
     return 0;
 }
 
+
+
 /**
  * @brief Start audio recording
  * @retval 0: Success, -1: Error
@@ -816,13 +837,19 @@ int audio_recorder_start(void)
     SHELL_LOG_USER_DEBUG("Current state: %d (IDLE=%d, RECORDING=%d, STOPPING=%d, ERROR=%d)", 
                          recorder.state, AUDIO_REC_IDLE, AUDIO_REC_RECORDING, AUDIO_REC_STOPPING, AUDIO_REC_ERROR);
     
+    
+    // Note: recorder.sample_rate retains the TARGET sample rate requested by user
+    // recorder.buffer_size will be calculated based on Native rate for DMA purposes
+    
     const AudioPcmConfig_t* cfg = audio_recorder_get_pcm_config();
     if (cfg != NULL) {
         recorder.channels = cfg->channels;
         recorder.bit_depth = cfg->bit_depth;
-        recorder.sample_rate = cfg->sample_rate;
-        recorder.buffer_size = audio_recorder_get_total_buffer_bytes();
+        // recorder.sample_rate is NOT overwritten here, it holds the user requested rate
+        // We set buffer size based on NATIVE rate because DMA runs at native rate
+        recorder.buffer_size = cfg->buffer_frames * cfg->channels * (cfg->bit_depth / 8U);
     }
+
 
     // 如果已经在录音，直接返回错误但用更友好的消息
     if (recorder.state == AUDIO_REC_RECORDING) {
@@ -1084,21 +1111,34 @@ int audio_recorder_stop(void)
     // First attempt: Normal stop
     dma_result = HAL_SAI_DMAStop(&hsai_BlockA4);
     
+    // 如果返回错误，检查状态是否已经是 Ready。如果是，则认为是成功的停止。
     if (dma_result != HAL_OK) {
-        SHELL_LOG_USER_WARNING("First DMA stop attempt failed, result: %d", dma_result);
-        
-        // Wait a bit for any ongoing transfer to complete
-        vTaskDelay(10);
-        
-        // Second attempt: Force abort
-        SHELL_LOG_USER_INFO("Attempting to abort SAI DMA...");
-        dma_result = HAL_SAI_Abort(&hsai_BlockA4);
-        
-        if (dma_result != HAL_OK) {
-            SHELL_LOG_USER_ERROR("Failed to abort SAI DMA, result: %d", dma_result);
-            overall_result = -1;
+        if (HAL_SAI_GetState(&hsai_BlockA4) == HAL_SAI_STATE_READY) {
+            SHELL_LOG_USER_INFO("SAI already stopped (Ready state). Ignoring stop error.");
+            dma_result = HAL_OK;
         } else {
-            SHELL_LOG_USER_INFO("SAI DMA aborted successfully");
+            SHELL_LOG_USER_WARNING("First DMA stop attempt failed, result: %d", dma_result);
+            
+            // Wait a bit for any ongoing transfer to complete
+            vTaskDelay(10);
+            
+            // Second attempt: Force abort
+            SHELL_LOG_USER_INFO("Attempting to abort SAI DMA...");
+            dma_result = HAL_SAI_Abort(&hsai_BlockA4);
+            
+            if (dma_result != HAL_OK) {
+                 // 再次检查状态，如果已Ready则忽略错误
+                if (HAL_SAI_GetState(&hsai_BlockA4) == HAL_SAI_STATE_READY) {
+                    SHELL_LOG_USER_INFO("SAI aborted and now Ready. Ignoring abort error.");
+                    dma_result = HAL_OK;
+                } else {
+                    SHELL_LOG_USER_ERROR("Failed to abort SAI DMA, result: %d", dma_result);
+                    // 即使停止失败，我们仍然继续关闭文件流程，只是标记为错误
+                    overall_result = -1;
+                }
+            } else {
+                SHELL_LOG_USER_INFO("SAI DMA aborted successfully");
+            }
         }
     } else {
         SHELL_LOG_USER_INFO("SAI DMA stopped successfully");

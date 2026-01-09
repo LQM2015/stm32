@@ -2725,6 +2725,16 @@ int cmd_audio_start(int argc, char *argv[])
 {
     // 移除重复的状态检查，让audio_recorder_start()内部处理
     // audio_recorder_start()已经包含了完整的状态检查和重置逻辑
+
+    if (argc > 1) {
+        uint32_t sample_rate = (uint32_t)strtoul(argv[1], NULL, 0);
+        if (sample_rate > 0) {
+            audio_recorder_set_sample_rate(sample_rate);
+        } else {
+            SHELL_LOG_USER_ERROR("Invalid sample rate: %s", argv[1]);
+            return -1;
+        }
+    }
     
     if (audio_recorder_start() == 0) {
         SHELL_LOG_USER_INFO("Audio recording started");
